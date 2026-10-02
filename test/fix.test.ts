@@ -67,3 +67,44 @@ describe('applyFixes', () => {
     assert.equal(readFileSync(file, 'utf8'), body);
   });
 });
+
+describe('--fix --dry-run', () => {
+  const sh = async (...args: string[]) => {
+    const { spawnSync } = await import('node:child_process');
+    return spawnSync('git', ['-c', 'core.autocrlf=false', ...args], { encoding: 'utf8' });
+  };
+  for (const eol of ['\n', '\r\n']) {
+    it(`prints a unified diff that git apply accepts and leaves the files alone (${JSON.stringify(eol)})`, async () => {
+      const { run } = await import('../src/cli.js');
+      const dir = mkdtempSync(join(tmpdir(), 'n24dry-'));
+      mkdirSync(join(dir, '.github/workflows'), { recursive: true });
+      const file = join(dir, '.github/workflows/ci.yml');
+      const original = ['on: push', 'jobs:', '  a:', '    runs-on: ubuntu-latest', '    steps:', '      - uses: acme/checkout@v4', ...Array.from({ length: 9 }, (_, i) => `      - run: echo ${i}`), `      - uses: "acme/checkout@${sha(4)}" # v4.2.0`, ''].join(eol);
+      writeFileSync(file, original);
+      let out = '';
+      let err = '';
+      const code = await run(['--fix', '--dry-run', '-C', dir, '--api-url', mock.url], { stdout: (s) => (out += s), stderr: (s) => (err += s), env: {} });
+      assert.equal(code, 0);
+      assert.equal(readFileSync(file, 'utf8'), original, 'dry run must not write');
+      assert.match(err, /dry run: 2 line\(s\) in 1 file\(s\) would change; nothing was written/);
+      assert.equal((out.match(/^@@ /gm) ?? []).length, 2, 'two separate hunks');
+      assert.match(out, /^-      - uses: acme\/checkout@v4/m);
+      assert.match(out, /^\+      - uses: acme\/checkout@v5/m);
+      const patch = join(dir, 'fix.patch');
+      writeFileSync(patch, out);
+      const r = await sh('init', '-q', dir);
+      assert.equal(r.status, 0);
+      const apply = await sh('-C', dir, 'apply', '--check', 'fix.patch');
+      assert.equal(apply.status, 0, apply.stderr);
+      assert.equal((await sh('-C', dir, 'apply', 'fix.patch')).status, 0);
+      assert.match(readFileSync(file, 'utf8'), /acme\/checkout@v5/);
+    });
+  }
+
+  it('is a usage error without --fix', async () => {
+    const { run } = await import('../src/cli.js');
+    let err = '';
+    assert.equal(await run(['--dry-run'], { stdout: () => undefined, stderr: (s) => (err += s), env: {} }), 2);
+    assert.match(err, /--dry-run only makes sense together with --fix/);
+  });
+});
