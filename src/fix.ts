@@ -20,14 +20,22 @@ export interface FixPlan {
   files: { file: string; abs: string; content: string; diff: string }[];
 }
 
-/** Work out the `uses:` rewrites for findings that have a suggestion, without touching the disk. */
-export function planFixes(findings: Finding[], cwd: string): FixPlan {
-  const byFile = new Map<string, Finding[]>();
-  for (const f of findings) {
-    if (!f.suggestion || f.rule === 'local-action-runtime') continue;
-    const list = byFile.get(f.file) ?? [];
-    list.push(f);
-    byFile.set(f.file, list);
+export interface Edit {
+  file: string;
+  line: number;
+  /** the `uses:` value expected on that line; the edit is skipped when the line changed */
+  uses: string;
+  /** new `ref` and trailing comment for the line */
+  next: (u: { owner: string; repo: string; path: string; ref: string }, existingComment: string) => { ref: string; comment: string | null } | null;
+}
+
+/** Apply `uses:` edits in memory (CRLF safe) and build a unified diff per file. Nothing is written. */
+export function planEdits(edits: Edit[], cwd: string): FixPlan {
+  const byFile = new Map<string, Edit[]>();
+  for (const e of edits) {
+    const list = byFile.get(e.file) ?? [];
+    list.push(e);
+    byFile.set(e.file, list);
   }
   const results: FixResult[] = [];
   const files: FixPlan['files'] = [];
@@ -42,31 +50,49 @@ export function planFixes(findings: Finding[], cwd: string): FixPlan {
       return eol === '\r\n' ? b.map((x) => `${x}\r`) : b;
     };
     let changed = false;
-    for (const f of list) {
-      const idx = f.line - 1;
+    for (const e of list) {
+      const idx = e.line - 1;
       const m = USES_LINE.exec(lines[idx] ?? '');
-      const sug = f.suggestion;
-      if (!m || !sug || m[3] !== f.uses) continue;
+      if (!m || m[3] !== e.uses) continue;
       const u = parseUses(m[3] as string);
       if (!u || u.type !== 'remote') continue;
+      const out = e.next(u, m[4] ?? '');
+      if (!out) continue;
       const prefix = `${u.owner}/${u.repo}${u.path ? `/${u.path}` : ''}`;
       const q = m[2] as string;
-      let next: string;
-      if (isFullSha(u.ref) && sug.sha) next = `${m[1]}${q}${prefix}@${sug.sha}${q} # ${sug.tag}`;
-      else next = `${m[1]}${q}${prefix}@${sug.ref}${q}${m[4] ?? ''}`;
+      const next = `${m[1]}${q}${prefix}@${out.ref}${q}${out.comment ? ` # ${out.comment}` : (m[4] ?? '')}`;
       if (next === lines[idx]) continue;
       lines[idx] = next;
       changed = true;
-      results.push({ file, line: f.line, from: f.uses, to: next.trim().replace(/^(-\s+)?uses:\s*/, '') });
+      results.push({ file, line: e.line, from: e.uses, to: next.trim().replace(/^(-\s+)?uses:\s*/, '') });
     }
     if (changed) files.push({ file, abs, content: lines.join(eol), diff: unifiedDiff(file, forDiff(original), forDiff(lines)) });
   }
   return { changes: results, files };
 }
 
+/** Work out the `uses:` rewrites for findings that have a suggestion, without touching the disk. */
+export function planFixes(findings: Finding[], cwd: string): FixPlan {
+  const edits: Edit[] = [];
+  for (const f of findings) {
+    const sug = f.suggestion;
+    if (!sug || f.rule === 'local-action-runtime') continue;
+    edits.push({
+      file: f.file,
+      line: f.line,
+      uses: f.uses,
+      next: (u) => (isFullSha(u.ref) && sug.sha ? { ref: sug.sha, comment: sug.tag } : { ref: sug.ref, comment: null }),
+    });
+  }
+  return planEdits(edits, cwd);
+}
+
 /** Rewrite the `uses:` lines of findings that have a suggestion. Returns what changed. */
 export function applyFixes(findings: Finding[], cwd: string): FixResult[] {
-  const plan = planFixes(findings, cwd);
+  return writePlan(planFixes(findings, cwd));
+}
+
+export function writePlan(plan: FixPlan): FixResult[] {
   for (const f of plan.files) writeFileSync(f.abs, f.content);
   return plan.changes;
 }

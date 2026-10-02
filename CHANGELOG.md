@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 - 2026-10-03
+
+* **`--pin-only` (issue #7):** replace tag refs by the commit SHA they point to now, with the most specific release as a comment; same major, no upgrade, branches and existing SHAs untouched, idempotent, `--dry-run` supported (unified diff that `git apply` accepts), CRLF safe. Implemented with a shared edit planner (`planEdits`) that `--fix` now uses too.
+
 ## 0.3.0 - 2026-10-03
 
 * **Rate-limit fallback (issue #5):** when the REST API limit is hit, files are read from `raw.githubusercontent.com` and tags are listed with `git ls-remote` (public repositories; the token never goes to git). The summary and one stderr line say how many lookups used it. `--no-fallback` keeps the old hard stop.
