@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.1.0
+      - uses: cosmichackerx/node24-ready@v0.1.1
         with:
           fail-on: error          # error | warning | never
 ```
@@ -62,7 +62,7 @@ Errors show up as annotations on the workflow files and as a table in the job su
       security-events: write
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.1.0
+      - uses: cosmichackerx/node24-ready@v0.1.1
         with:
           sarif-file: node24-ready.sarif
           fail-on: never
@@ -180,13 +180,13 @@ If one of these fits you better, use it. This project exists because none of the
 * Reusable workflows and composites are followed to depth 4; deeper chains are reported as unresolved.
 * `docker://` and `./local` action references are skipped (a local `action.yml` is checked via `local-action-runtime`).
 * Dynamic `uses:` values (expressions) are not resolvable.
-* Verified on the test-suite (a fake GitHub API on localhost, 31 tests) and by hand against live API data for ~20 repositories; precision on arbitrary repositories is not proven.
+* Verified on the test-suite (a fake GitHub API on localhost, 32 tests) and by hand against live API data for ~20 repositories; precision on arbitrary repositories is not proven.
 
 ## Development
 
 ```bash
 npm ci
-npm test            # typecheck + 31 tests (node:test) against a local mock GitHub API
+npm test            # typecheck + 32 tests (node:test) against a local mock GitHub API
 npm run bundle      # regenerate action/index.mjs (committed; CI fails if it is stale)
 ```
 

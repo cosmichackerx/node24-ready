@@ -82,7 +82,16 @@ describe('cli', () => {
     assert.equal(r.code, 0);
     assert.match(r.err, /fixed \.github\/workflows\/ci\.yml:6: acme\/checkout@v4 -> acme\/checkout@v5/);
     assert.match(readFileSync(join(dir, '.github/workflows/ci.yml'), 'utf8'), /acme\/checkout@v5/);
+    assert.match(r.out, /^No action declaring node12\/16\/20 found/, 'fixed findings are not reported again');
     assert.equal((await cli(['-C', dir, '--api-url', mock.url])).code, 0);
+  });
+
+  it('--fix still reports what it could not fix', async () => {
+    const dir = project(['acme/checkout@v4', 'acme/stuck@v1']);
+    const r = await cli(['-C', dir, '--api-url', mock.url, '--fix']);
+    assert.equal(r.code, 0);
+    assert.match(r.out, /acme\/stuck@v1 declares node20/);
+    assert.ok(!/acme\/checkout@v4/.test(r.out));
   });
 
   it('usage errors exit 2; help, version and rule list exit 0', async () => {

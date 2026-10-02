@@ -103,6 +103,9 @@ export async function run(
       const changes = applyFixes(result.findings, cwd);
       for (const c of changes) io.stderr(`node24-ready: fixed ${c.file}:${c.line}: ${c.from} -> ${c.to}\n`);
       if (changes.length === 0) io.stderr('node24-ready: --fix found nothing it could rewrite safely\n');
+      // report only what is left: findings that were rewritten are resolved
+      const fixed = new Set(changes.map((c) => `${c.file}:${c.line}`));
+      result.findings = result.findings.filter((f) => !fixed.has(`${f.file}:${f.line}`));
     }
     let text: string;
     switch (format) {
