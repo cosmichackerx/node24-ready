@@ -20,6 +20,15 @@ inputs:
   sarif-file:
     description: "Also write a SARIF 2.1.0 report to this file (upload it with github/codeql-action/upload-sarif)."
     default: ""
+  changed-since:
+    description: "PR mode: only report findings on lines changed since the merge base with this ref, e.g. origin/main (needs fetch-depth: 0). The ignore list is then read from that base."
+    default: ""
+  config:
+    description: "Path of an ignore list to trust instead of .node24-ready.json."
+    default: ""
+  eol:
+    description: "Check actions/setup-node for end-of-life Node.js versions (true or false)."
+    default: "true"
   working-directory:
     description: Directory to run in.
     default: "."
@@ -40,11 +49,17 @@ runs:
         INPUT_SUMMARY: ${{ inputs.summary }}
         INPUT_SARIF: ${{ inputs.sarif-file }}
         INPUT_WD: ${{ inputs.working-directory }}
+        INPUT_CHANGED_SINCE: ${{ inputs.changed-since }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_EOL: ${{ inputs.eol }}
       run: |
         cli="$ACTION_DIR/action/index.mjs"
         read -r -a paths <<< "$INPUT_PATH"
         common=(-C "$INPUT_WD")
         if [ "$INPUT_SUGGEST" != "true" ]; then common+=(--no-suggest); fi
+        if [ "$INPUT_EOL" != "true" ]; then common+=(--no-eol); fi
+        if [ -n "$INPUT_CHANGED_SINCE" ]; then common+=(--changed-since "$INPUT_CHANGED_SINCE"); fi
+        if [ -n "$INPUT_CONFIG" ]; then common+=(--config "$INPUT_CONFIG"); fi
         if [ -n "$INPUT_SARIF" ]; then
           node "$cli" "${common[@]}" "${paths[@]}" --format sarif --output "$INPUT_SARIF" --fail-on never
         fi

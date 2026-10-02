@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 - 2026-10-03
+
+* New rule `setup-node-eol` (issue #1): end-of-life Node.js versions in `actions/setup-node` (`node-version`, version files, `lts/<codename>`, matrix expansion).
+* `.node24-ready.json` ignore list with mandatory `reason` and `expires`; expired entries become `ignore-expired` warnings; unused entries are listed; SARIF `suppressions` (issue #2).
+* `--changed-since <ref>` PR mode and Action input `changed-since`; the ignore list is read from the base ref (issue #3).
+* `--cache-dir` / `NODE24_READY_CACHE`: ETag revalidation and SHA-pin caching to stay within rate limits (issue #5).
+* Precision work from a 240-repository corpus (see README): `runs.plugin` actions (e.g. `actions/checkout@v1`) are no longer "unresolved"; steps inside `- parallel:` groups are scanned; workflows rejected by the YAML library are line-scanned and reported as `file-unparseable`.
+* `--fix` still refuses to combine with `--changed-since`.
+
 ## 0.1.1 - 2026-10-02
 
 * `--fix` no longer prints the findings it just fixed; the report lists only what is left (for example actions without a node24 release).

@@ -1,12 +1,22 @@
 export type Severity = 'error' | 'warning' | 'info';
 
-export type Rule = 'action-runtime-deprecated' | 'action-runtime-nested' | 'action-runtime-unresolved' | 'local-action-runtime';
+export type Rule =
+  | 'action-runtime-deprecated'
+  | 'action-runtime-nested'
+  | 'action-runtime-unresolved'
+  | 'local-action-runtime'
+  | 'setup-node-eol'
+  | 'file-unparseable'
+  | 'ignore-expired';
 
 export const RULES: Record<Rule, string> = {
   'action-runtime-deprecated': 'A referenced action still declares node12, node16 or node20; GitHub now force-runs it on Node 24 instead of the declared runtime.',
   'action-runtime-nested': 'A composite action or reusable workflow you call contains an action that declares a removed Node runtime.',
   'action-runtime-unresolved': 'The action metadata could not be fetched (private, deleted, wrong ref, network or rate limit), so its runtime is unknown.',
   'local-action-runtime': "This repository's own action.yml declares a removed Node runtime (runs.using).",
+  'setup-node-eol': 'actions/setup-node installs a Node.js version that has reached (or is close to) end of life.',
+  'file-unparseable': 'The YAML parser rejected this file (GitHub may still accept it); uses: lines were found by a line scan or not at all.',
+  'ignore-expired': 'An entry of .node24-ready.json has expired and no longer suppresses anything.',
 };
 
 export interface Suggestion {
@@ -47,8 +57,18 @@ export interface UseSite {
   comment?: string;
 }
 
+export interface IgnoredFinding {
+  finding: Finding;
+  reason: string;
+  expires?: string;
+}
+
 export interface ScanSummary {
   files: number;
+  /** Findings dropped by --changed-since because their line was not touched. */
+  hidden?: number;
+  /** Findings suppressed by .node24-ready.json. */
+  ignored?: number;
   uses: number;
   distinctActions: number;
   ok: number;
@@ -57,5 +77,9 @@ export interface ScanSummary {
 
 export interface ScanResult {
   findings: Finding[];
+  /** Suppressed by the ignore list, with the reason given there. */
+  ignored?: IgnoredFinding[];
+  /** Ignore entries that matched nothing. */
+  unusedIgnores?: string[];
   summary: ScanSummary;
 }

@@ -122,10 +122,10 @@ describe('scan', () => {
     assert.equal(mock.requests.length - before, 1);
   });
 
-  it('survives invalid YAML and reads the file contents it was given', async () => {
+  it('reports invalid YAML instead of crashing or ignoring it silently', async () => {
     const cwd = project({ '.github/workflows/bad.yml': 'a: [unclosed\n', 'notes.txt': 'uses: acme/checkout@v4' });
     const r = await scan(opts(cwd));
-    assert.deepEqual(r.findings, []);
+    assert.deepEqual(r.findings.map((f) => [f.rule, f.severity, f.file]), [['file-unparseable', 'warning', '.github/workflows/bad.yml']]);
     assert.equal(readFileSync(join(cwd, 'notes.txt'), 'utf8').length > 0, true);
   });
 });

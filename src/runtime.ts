@@ -46,7 +46,7 @@ export class Evaluator {
       const res = await this.client.fileAt(r.owner, r.repo, file, r.ref);
       if (res.status === 'ok') {
         const parsed = parseFile(file, res.text);
-        if (parsed.error) return { fail: `${file} is not valid YAML (${parsed.error})` };
+        if (parsed.error && !parsed.fallback) return { fail: `${file} is not valid YAML (${parsed.error})` };
         return { parsed };
       }
       if (res.status === 'error') lastError = res.message;
@@ -60,6 +60,7 @@ export class Evaluator {
     const { parsed } = loaded;
     const rootUsing = r.isWorkflow ? 'workflow' : parsed.runsUsing?.value;
     if (!r.isWorkflow) {
+      if (!rootUsing && parsed.plugin) return { status: 'ok', rootUsing: 'plugin', via: [] };
       if (!rootUsing) return { status: 'unresolved', via: [], detail: 'runs.using is missing in the action metadata' };
       if (isDeprecatedUsing(rootUsing)) return { status: 'deprecated', using: rootUsing, rootUsing, via: [] };
       if (!parsed.composite) return { status: 'ok', rootUsing, via: [] };
