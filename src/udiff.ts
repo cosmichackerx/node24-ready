@@ -19,9 +19,17 @@ export function unifiedDiff(file: string, before: string[], after: string[], con
   for (const [lo, hi] of hunks) {
     const count = hi - lo + 1;
     out.push(`@@ -${lo + 1},${count} +${lo + 1},${count} @@`);
-    for (let i = lo; i <= hi; i++) {
-      if (before[i] === after[i]) out.push(` ${before[i]}`);
-      else out.push(`-${before[i]}`, `+${after[i]}`);
+    for (let i = lo; i <= hi; ) {
+      if (before[i] === after[i]) {
+        out.push(` ${before[i]}`);
+        i++;
+        continue;
+      }
+      let j = i; // a run of changed lines: all removals first, then all additions (like git diff)
+      while (j <= hi && before[j] !== after[j]) j++;
+      for (let k = i; k < j; k++) out.push(`-${before[k]}`);
+      for (let k = i; k < j; k++) out.push(`+${after[k]}`);
+      i = j;
     }
   }
   return out.join('\n') + '\n';
