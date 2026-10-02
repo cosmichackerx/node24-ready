@@ -73,6 +73,8 @@ export interface ScanSummary {
   distinctActions: number;
   ok: number;
   fetches: number;
+  /** lookups answered through raw.githubusercontent.com / git ls-remote after the API rate limit was hit */
+  fallbackLookups?: number;
 }
 
 export interface ScanResult {

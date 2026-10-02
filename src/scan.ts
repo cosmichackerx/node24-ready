@@ -162,6 +162,6 @@ export async function scan(opts: ScanOptions): Promise<ScanResult> {
     findings: kept,
     ...(ignored ? { ignored } : {}),
     ...(unusedIgnores && unusedIgnores.length ? { unusedIgnores } : {}),
-    summary: { files: files.length, ...(hidden ? { hidden } : {}), ...(ignored && ignored.length ? { ignored: ignored.length } : {}), uses: sites.length, distinctActions: distinct.size, ok: okCount, fetches: client.requests },
+    summary: { files: files.length, ...(hidden ? { hidden } : {}), ...(ignored && ignored.length ? { ignored: ignored.length } : {}), uses: sites.length, distinctActions: distinct.size, ok: okCount, fetches: client.requests, ...(client.fallbackLookups ? { fallbackLookups: client.fallbackLookups } : {}) },
   };
 }
