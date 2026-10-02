@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 - 2026-10-02
+
+* `--fix` no longer prints the findings it just fixed; the report lists only what is left (for example actions without a node24 release).
+
 ## 0.1.0 - 2026-10-02
 
 First release.
