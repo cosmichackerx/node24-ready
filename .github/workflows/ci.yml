@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  bundle:
+    name: bundle is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run bundle
+      - name: Fail when action/index.mjs was not regenerated
+        run: git diff --exit-code -- action/index.mjs
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pack and smoke-test the tarball
+        run: |
+          npm pack --silent
+          dir="$(mktemp -d)"
+          cd "$dir"
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/node24-ready-*.tgz
+          npx --no-install node24-ready --version
+          npx --no-install node24-ready --list-rules
+
+  dogfood:
+    name: dogfood (this repo's workflows, live API)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Scan own workflows (must be clean)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node dist/src/cli.js .github action.yml --fail-on warning
+
+  action-selftest:
+    name: action-selftest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Clean repository passes and writes a summary and SARIF
+        uses: ./
+        with:
+          path: .github action.yml
+          sarif-file: ${{ runner.temp }}/clean.sarif
+      - name: SARIF file exists and is valid JSON
+        run: node -e "const j=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));if(j.version!=='2.1.0')process.exit(1);console.log('results:',j.runs[0].results.length)" "$RUNNER_TEMP/clean.sarif"
+      - name: Fixture with a known node20 action must fail the step
+        id: bad
+        continue-on-error: true
+        uses: ./
+        with:
+          path: test/fixtures/bad-workflow
+          suggest: "false"
+      - name: The failing fixture really failed
+        run: |
+          if [ "${{ steps.bad.outcome }}" != "failure" ]; then echo "expected the fixture to fail, got ${{ steps.bad.outcome }}"; exit 1; fi
+      - name: fail-on never lets the same fixture pass
+        uses: ./
+        with:
+          path: test/fixtures/bad-workflow
+          fail-on: never

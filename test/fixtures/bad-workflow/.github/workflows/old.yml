@@ -1,0 +1,8 @@
+# Fixture for the action self-test: actions/checkout@v4 and actions/setup-node@v4 declare node20.
+on: push
+jobs:
+  old:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4

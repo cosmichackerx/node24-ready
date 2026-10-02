@@ -1,0 +1,118 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
+import { GitHubClient, type ClientOptions } from './github.js';
+import { parseUses, refKey } from './refs.js';
+import { Evaluator, isDeprecatedUsing } from './runtime.js';
+import { suggest } from './suggest.js';
+import { type Finding, type ScanResult, type UseSite } from './types.js';
+import { parseFile } from './workflow.js';
+
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'vendor', 'target', '.venv']);
+const WORKFLOW_RE = /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/;
+const ACTION_RE = /(^|\/)action\.ya?ml$/;
+
+/** Workflow and action metadata files below `paths` (files are taken as given). */
+export function discoverFiles(paths: string[], cwd: string): string[] {
+  const out = new Set<string>();
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name)) walk(join(dir, entry.name));
+      } else if (entry.isFile()) {
+        const rel = relative(cwd, join(dir, entry.name)).split(sep).join('/');
+        if (WORKFLOW_RE.test(rel) || ACTION_RE.test(rel)) out.add(join(dir, entry.name));
+      }
+    }
+  };
+  for (const p of paths) {
+    const abs = resolve(cwd, p);
+    const st = statSync(abs);
+    if (st.isDirectory()) walk(abs);
+    else out.add(abs);
+  }
+  return [...out].sort();
+}
+
+export interface ScanOptions {
+  paths: string[];
+  cwd: string;
+  client?: GitHubClient;
+  clientOptions?: ClientOptions;
+  suggestions?: boolean;
+}
+
+export async function scan(opts: ScanOptions): Promise<ScanResult> {
+  const client = opts.client ?? new GitHubClient(opts.clientOptions);
+  const evaluator = new Evaluator(client);
+  const files = discoverFiles(opts.paths, opts.cwd);
+  const findings: Finding[] = [];
+  const sites: UseSite[] = [];
+
+  for (const abs of files) {
+    const rel = relative(opts.cwd, abs).split(sep).join('/');
+    const parsed = parseFile(rel, readFileSync(abs, 'utf8'));
+    if (parsed.error) continue;
+    if (parsed.runsUsing && isDeprecatedUsing(parsed.runsUsing.value)) {
+      findings.push({
+        rule: 'local-action-runtime',
+        severity: 'error',
+        file: rel,
+        line: parsed.runsUsing.line,
+        column: parsed.runsUsing.column,
+        uses: parsed.runsUsing.value,
+        runtime: parsed.runsUsing.value,
+        message: `this action declares runs.using: ${parsed.runsUsing.value}, but GitHub now runs JavaScript actions on Node 24 only. Set it to node24, test, and publish a new release`,
+        via: [],
+      });
+    }
+    sites.push(...parsed.uses);
+  }
+
+  const remotes = sites.map((s) => ({ site: s, u: parseUses(s.value) })).filter((x) => x.u?.type === 'remote');
+  const distinct = new Set(remotes.map((x) => refKey(x.u as { owner: string; repo: string; path: string; ref: string })));
+  let okCount = 0;
+
+  // evaluate every distinct reference once (the evaluator and client cache), then report per site
+  await Promise.all(
+    remotes.map(async ({ site, u }) => {
+      if (u?.type !== 'remote') return;
+      const ev = await evaluator.evaluate(u);
+      if (ev.status === 'ok') {
+        okCount++;
+        return;
+      }
+      const base = { file: site.file, line: site.line, column: site.column, uses: site.value, via: ev.via };
+      if (ev.status === 'unresolved') {
+        findings.push({
+          ...base,
+          rule: 'action-runtime-unresolved',
+          severity: 'warning',
+          message: `runtime unknown: ${ev.detail ?? 'unresolved'}${ev.via.length ? ` (inside ${ev.via.join(' -> ')})` : ''}`,
+        });
+        return;
+      }
+      const direct = ev.via.length === 0;
+      const f: Finding = {
+        ...base,
+        rule: direct ? 'action-runtime-deprecated' : 'action-runtime-nested',
+        severity: 'error',
+        runtime: ev.using as string,
+        message: direct
+          ? `${refKey(u)} declares ${ev.using}, but GitHub now force-runs JavaScript actions on Node 24`
+          : `${refKey(u)} is a ${ev.rootUsing === 'workflow' ? 'reusable workflow' : 'composite action'} that calls ${ev.via.join(' -> ')}, which declares ${ev.using}`,
+      };
+      if (opts.suggestions !== false) {
+        const s = await suggest(client, evaluator, u);
+        if (s.suggestion) f.suggestion = s.suggestion;
+        else if (s.reason) f.noSuggestion = s.reason;
+      }
+      findings.push(f);
+    }),
+  );
+
+  findings.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column || a.rule.localeCompare(b.rule));
+  return {
+    findings,
+    summary: { files: files.length, uses: sites.length, distinctActions: distinct.size, ok: okCount, fetches: client.requests },
+  };
+}

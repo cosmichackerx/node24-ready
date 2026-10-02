@@ -1,0 +1,61 @@
+{
+  "name": "node24-ready",
+  "version": "0.1.0",
+  "description": "Find GitHub Actions workflows and actions that still run on the removed Node 20 runtime (or Node 12/16), look inside composite actions and reusable workflows, and show the smallest upgrade that declares node24.",
+  "keywords": [
+    "github-actions",
+    "node20",
+    "node24",
+    "deprecation",
+    "workflow",
+    "ci",
+    "audit",
+    "lint",
+    "sarif",
+    "supply-chain",
+    "cli",
+    "typescript"
+  ],
+  "license": "MIT",
+  "author": "Muhammad Arslan <cosmichackerx@users.noreply.github.com>",
+  "homepage": "https://github.com/cosmichackerx/node24-ready#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cosmichackerx/node24-ready.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cosmichackerx/node24-ready/issues"
+  },
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "bin": {
+    "node24-ready": "./dist/src/cli.js"
+  },
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "bundle": "node scripts/bundle.mjs",
+    "test": "npm run build && node scripts/run-tests.mjs",
+    "start": "node dist/src/cli.js",
+    "prepare": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "ajv": "^8.20.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  }
+}

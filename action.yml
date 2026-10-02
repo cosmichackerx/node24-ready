@@ -1,0 +1,54 @@
+name: Node 24 Readiness Check for Actions
+description: "Find workflow actions still on the removed Node 20 runtime (also inside composites) and get the smallest node24 upgrade."
+author: cosmichackerx
+branding:
+  icon: alert-triangle
+  color: orange
+inputs:
+  path:
+    description: "Space-separated files or directories to scan (workflow files, action.yml). Default: the whole repository."
+    default: "."
+  fail-on:
+    description: "Lowest severity that fails the step: error, warning or never."
+    default: error
+  suggest:
+    description: "Look up the smallest upgrade that runs on node24 (true or false). Costs a few extra API requests."
+    default: "true"
+  summary:
+    description: "Append a Markdown report to the job summary (true or false)."
+    default: "true"
+  sarif-file:
+    description: "Also write a SARIF 2.1.0 report to this file (upload it with github/codeql-action/upload-sarif)."
+    default: ""
+  working-directory:
+    description: Directory to run in.
+    default: "."
+  token:
+    description: "Token for the GitHub API (read access to public repositories is enough). Raises the rate limit from 60 to 1000+ requests per hour."
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - name: Run node24-ready
+      shell: bash
+      env:
+        ACTION_DIR: ${{ github.action_path }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_SUGGEST: ${{ inputs.suggest }}
+        INPUT_SUMMARY: ${{ inputs.summary }}
+        INPUT_SARIF: ${{ inputs.sarif-file }}
+        INPUT_WD: ${{ inputs.working-directory }}
+      run: |
+        cli="$ACTION_DIR/action/index.mjs"
+        read -r -a paths <<< "$INPUT_PATH"
+        common=(-C "$INPUT_WD")
+        if [ "$INPUT_SUGGEST" != "true" ]; then common+=(--no-suggest); fi
+        if [ -n "$INPUT_SARIF" ]; then
+          node "$cli" "${common[@]}" "${paths[@]}" --format sarif --output "$INPUT_SARIF" --fail-on never
+        fi
+        if [ "$INPUT_SUMMARY" = "true" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          node "$cli" "${common[@]}" "${paths[@]}" --format markdown --fail-on never >> "$GITHUB_STEP_SUMMARY"
+        fi
+        node "$cli" "${common[@]}" "${paths[@]}" --format github --fail-on "$INPUT_FAIL_ON"
