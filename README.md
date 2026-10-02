@@ -256,7 +256,7 @@ If one of these fits you better, use it. This project exists because none of the
 
 ## Measured precision (and what that does not prove)
 
-The corpus scripts are shipped in [`scripts/corpus/`](scripts/corpus) (`fetch.py` downloads the workflows, `compare.py` runs the tool and the independent checker and lists every disagreement), so the numbers below can be reproduced; they will drift as actions release new versions.
+The corpus scripts are shipped in [`scripts/corpus/`](scripts/corpus) (`fetch.py` downloads the workflows, `compare.py` runs the tool and the independent checker and lists every disagreement), so the numbers below can be reproduced; they will drift as actions release new versions. I re-ran the shipped scripts on the same 240-repository corpus (2026-10-03): **1264 of 1277 distinct references agree (99.0 %)**, 13 disagreements, the same count as in the hand-checked run below (this re-run did not repeat the hand check; 7 of the 13 are references the independent checker could not resolve through the raw host, 6 are tool `nested` versus checker `ok`, the same class as the guardian/setup-scala case). A first run without retries scored 98.7 % because the raw host returned transient errors, which is why `compare.py` now backs off and retries.
 
 I ran v0.2.0 over a corpus of **240 public repositories** (top-starred across 20 languages, pushed after 2026-09-01; fetched 2026-10-02): **2916 workflow files, 18 104 `uses:` sites, 1277 distinct remote action references**. Result: 3199 `action-runtime-deprecated` + 161 `action-runtime-nested` errors, 81 `setup-node-eol` findings (57 warnings, 24 infos), 6 unresolved references, 1 unparseable file.
 
