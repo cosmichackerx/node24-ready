@@ -1,8 +1,10 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { CONFIG_FILE, ConfigError, parseConfig, type Config } from './config.js';
+import { fileAtBase, GitError } from './diff.js';
 import { applyFixes } from './fix.js';
 import { RateLimitError } from './github.js';
 import { meetsThreshold, renderGithub, renderJson, renderMarkdown, renderSarif, renderText } from './report.js';
@@ -19,8 +21,14 @@ Options:
   -f, --format <fmt>     text | markdown | json | github | sarif   (default: text)
   -o, --output <file>    write the report to a file
       --fail-on <level>  exit 1 on: error | warning | never   (default: error)
+      --changed-since <ref>  only report findings on lines changed since the merge base with <ref> (PR mode)
+      --config <file>    ignore list (default: ${CONFIG_FILE}; with --changed-since it is read from the base ref)
+      --no-config        do not read an ignore list
+      --no-eol           skip the setup-node end-of-life rule
+      --today <date>     YYYY-MM-DD used for expiry and end-of-life checks (for tests)
       --fix              rewrite uses: lines to the suggested node24-capable release (review the changelog first)
       --no-suggest       do not look for upgrade targets (fewer API requests)
+      --cache-dir <dir>  cache API responses (ETag revalidation costs no rate limit; SHA-pinned files are never re-fetched). Env: NODE24_READY_CACHE
       --api-url <url>    GitHub API base (GitHub Enterprise Server, or a test server)
       --list-rules       print the rule ids and exit
   -v, --version          print the version
@@ -62,8 +70,14 @@ export async function run(
         output: { type: 'string', short: 'o' },
         'fail-on': { type: 'string', default: 'error' },
         fix: { type: 'boolean', default: false },
+        'changed-since': { type: 'string' },
+        config: { type: 'string' },
+        'no-config': { type: 'boolean', default: false },
+        'no-eol': { type: 'boolean', default: false },
+        today: { type: 'string' },
         'no-suggest': { type: 'boolean', default: false },
         'api-url': { type: 'string' },
+        'cache-dir': { type: 'string' },
         'list-rules': { type: 'boolean', default: false },
         version: { type: 'boolean', short: 'v', default: false },
         help: { type: 'boolean', short: 'h', default: false },
@@ -91,13 +105,37 @@ export async function run(
     return 2;
   }
   const cwd = resolve(values.cwd ?? '.');
+  if (values.today !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(values.today)) {
+    io.stderr('node24-ready: --today must look like 2026-10-02\n');
+    return 2;
+  }
+  if (values.fix && values['changed-since']) {
+    io.stderr('node24-ready: --fix cannot be combined with --changed-since\n');
+    return 2;
+  }
   const token = io.env.GITHUB_TOKEN || io.env.GH_TOKEN || undefined;
   try {
+    let config: Config | undefined;
+    if (!values['no-config']) {
+      if (values.config) {
+        config = parseConfig(readFileSync(resolve(cwd, values.config), 'utf8'), values.config);
+      } else if (values['changed-since']) {
+        // a pull request must not be able to silence its own findings: use the ignore list of the base
+        const text = fileAtBase(cwd, values['changed-since'], CONFIG_FILE);
+        if (text !== null) config = parseConfig(text, `${CONFIG_FILE} (at ${values['changed-since']})`);
+      } else if (existsSync(join(cwd, CONFIG_FILE))) {
+        config = parseConfig(readFileSync(join(cwd, CONFIG_FILE), 'utf8'));
+      }
+    }
     const result = await scan({
+      ...(config ? { config } : {}),
+      ...(values['changed-since'] ? { changedSince: values['changed-since'] } : {}),
+      ...(values.today ? { today: values.today } : {}),
+      eol: !values['no-eol'],
       paths: positionals.length ? positionals : ['.'],
       cwd,
       suggestions: !values['no-suggest'] || values.fix === true,
-      clientOptions: { ...(values['api-url'] ? { apiUrl: values['api-url'] } : io.env.GITHUB_API_URL ? { apiUrl: io.env.GITHUB_API_URL } : {}), ...(token ? { token } : {}) },
+      clientOptions: { ...(values['api-url'] ? { apiUrl: values['api-url'] } : io.env.GITHUB_API_URL ? { apiUrl: io.env.GITHUB_API_URL } : {}), ...(token ? { token } : {}), ...(values['cache-dir'] || io.env.NODE24_READY_CACHE ? { cacheDir: resolve(cwd, (values['cache-dir'] || io.env.NODE24_READY_CACHE) as string) } : {}) },
     });
     if (values.fix) {
       const changes = applyFixes(result.findings, cwd);
@@ -130,6 +168,10 @@ export async function run(
     return threshold !== 'never' && !values.fix && meetsThreshold(result.findings, threshold) ? 1 : 0;
   } catch (err) {
     if (err instanceof RateLimitError) {
+      io.stderr(`node24-ready: ${err.message}\n`);
+      return 2;
+    }
+    if (err instanceof ConfigError || err instanceof GitError) {
       io.stderr(`node24-ready: ${err.message}\n`);
       return 2;
     }

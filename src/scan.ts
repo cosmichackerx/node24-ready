@@ -1,11 +1,14 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
+import { applyIgnores, type Config } from './config.js';
+import { changedLines, filterChanged } from './diff.js';
+import { eolFindings } from './eol.js';
 import { GitHubClient, type ClientOptions } from './github.js';
 import { parseUses, refKey } from './refs.js';
 import { Evaluator, isDeprecatedUsing } from './runtime.js';
 import { suggest } from './suggest.js';
 import { type Finding, type ScanResult, type UseSite } from './types.js';
-import { parseFile } from './workflow.js';
+import { parseFile, type SetupNodeSite } from './workflow.js';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'vendor', 'target', '.venv']);
 const WORKFLOW_RE = /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/;
@@ -39,7 +42,17 @@ export interface ScanOptions {
   client?: GitHubClient;
   clientOptions?: ClientOptions;
   suggestions?: boolean;
+  /** Only report findings on lines changed since the merge base with this ref. */
+  changedSince?: string;
+  /** Ignore list; see config.ts. */
+  config?: Config;
+  /** `YYYY-MM-DD` used for expiry and end-of-life checks (tests set it). */
+  today?: string;
+  /** Turn the setup-node end-of-life rule off. */
+  eol?: boolean;
 }
+
+export const isoToday = (d = new Date()): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 export async function scan(opts: ScanOptions): Promise<ScanResult> {
   const client = opts.client ?? new GitHubClient(opts.clientOptions);
@@ -47,11 +60,28 @@ export async function scan(opts: ScanOptions): Promise<ScanResult> {
   const files = discoverFiles(opts.paths, opts.cwd);
   const findings: Finding[] = [];
   const sites: UseSite[] = [];
+  const setupNode: SetupNodeSite[] = [];
+  const today = opts.today ?? isoToday();
 
   for (const abs of files) {
     const rel = relative(opts.cwd, abs).split(sep).join('/');
     const parsed = parseFile(rel, readFileSync(abs, 'utf8'));
-    if (parsed.error) continue;
+    if (parsed.error) {
+      findings.push({
+        rule: 'file-unparseable',
+        severity: parsed.fallback ? 'info' : 'warning',
+        file: rel,
+        line: parsed.errorLine ?? 1,
+        column: 1,
+        uses: rel,
+        message: parsed.fallback
+          ? `YAML parser error (${parsed.error}); ${parsed.uses.length} uses: line(s) were found by a line scan instead`
+          : `YAML parser error (${parsed.error}); no uses: lines found, so this file was not checked`,
+        via: [],
+      });
+      if (!parsed.fallback) continue;
+    }
+    setupNode.push(...parsed.setupNode);
     if (parsed.runsUsing && isDeprecatedUsing(parsed.runsUsing.value)) {
       findings.push({
         rule: 'local-action-runtime',
@@ -110,9 +140,28 @@ export async function scan(opts: ScanOptions): Promise<ScanResult> {
     }),
   );
 
-  findings.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column || a.rule.localeCompare(b.rule));
+  if (opts.eol !== false) findings.push(...eolFindings(setupNode, { today, cwd: opts.cwd }));
+
+  let ignored: ScanResult['ignored'];
+  let unusedIgnores: string[] | undefined;
+  let kept = findings;
+  if (opts.config) {
+    const applied = applyIgnores(findings, opts.config, today);
+    kept = applied.findings;
+    ignored = applied.ignored;
+    unusedIgnores = applied.unused;
+  }
+  let hidden = 0;
+  if (opts.changedSince) {
+    const res = filterChanged(kept, changedLines(opts.cwd, opts.changedSince), (f) => f.rule === 'ignore-expired');
+    kept = res.kept;
+    hidden = res.hidden;
+  }
+  kept.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column || a.rule.localeCompare(b.rule));
   return {
-    findings,
-    summary: { files: files.length, uses: sites.length, distinctActions: distinct.size, ok: okCount, fetches: client.requests },
+    findings: kept,
+    ...(ignored ? { ignored } : {}),
+    ...(unusedIgnores && unusedIgnores.length ? { unusedIgnores } : {}),
+    summary: { files: files.length, ...(hidden ? { hidden } : {}), ...(ignored && ignored.length ? { ignored: ignored.length } : {}), uses: sites.length, distinctActions: distinct.size, ok: okCount, fetches: client.requests },
   };
 }

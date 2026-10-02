@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { CONFIG_FILE } from './config.js';
 import { RULES, type Finding, type ScanResult, type Severity } from './types.js';
 
 const RANK: Record<Severity, number> = { info: 0, warning: 1, error: 2 };
@@ -29,7 +30,11 @@ function summaryLine(r: ScanResult): string {
     r.findings.length === 0
       ? `No action declaring node12/16/20 found in ${r.summary.uses} reference(s).`
       : `${r.findings.length} finding(s): ${c.error} error, ${c.warning} warning.`;
-  return `${head} Checked ${r.summary.distinctActions} distinct action reference(s) in ${r.summary.files} file(s) with ${r.summary.fetches} API request(s).`;
+  const extra = [
+    r.summary.ignored ? `${r.summary.ignored} ignored by ${CONFIG_FILE}` : '',
+    r.summary.hidden ? `${r.summary.hidden} on unchanged lines hidden by --changed-since` : '',
+  ].filter(Boolean);
+  return `${head}${extra.length ? ` (${extra.join('; ')})` : ''} Checked ${r.summary.distinctActions} distinct action reference(s) in ${r.summary.files} file(s) with ${r.summary.fetches} API request(s).`;
 }
 
 export function renderText(r: ScanResult): string {
@@ -47,6 +52,8 @@ export function renderText(r: ScanResult): string {
   }
   if (r.findings.length) out.push('');
   out.push(summaryLine(r));
+  for (const i of r.ignored ?? []) out.push(`  ignored: ${i.finding.file}:${i.finding.line} ${i.finding.uses} (${i.finding.rule}) - ${i.reason}${i.expires ? ` [until ${i.expires}]` : ''}`);
+  for (const u of r.unusedIgnores ?? []) out.push(`  unused ignore entry (matches nothing, remove it?): ${u}`);
   return out.join('\n');
 }
 
@@ -63,7 +70,17 @@ export function renderMarkdown(r: ScanResult): string {
 }
 
 export function renderJson(r: ScanResult): string {
-  return JSON.stringify({ schema: 1, summary: { ...r.summary, ...counts(r.findings) }, findings: r.findings }, null, 2);
+  return JSON.stringify(
+    {
+      schema: 1,
+      summary: { ...r.summary, ...counts(r.findings) },
+      findings: r.findings,
+      ignored: (r.ignored ?? []).map((i) => ({ ...i.finding, ignoredReason: i.reason, ...(i.expires ? { ignoredUntil: i.expires } : {}) })),
+      unusedIgnores: r.unusedIgnores ?? [],
+    },
+    null,
+    2,
+  );
 }
 
 const ghProp = (s: string): string => s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A').replace(/:/g, '%3A').replace(/,/g, '%2C');
@@ -81,6 +98,15 @@ export function renderGithub(r: ScanResult): string {
 
 const LEVEL: Record<Severity, string> = { error: 'error', warning: 'warning', info: 'note' };
 const SECURITY: Record<Severity, string> = { error: '7.0', warning: '4.0', info: '1.0' };
+const RULE_SEVERITY: Record<keyof typeof RULES, Severity> = {
+  'action-runtime-deprecated': 'error',
+  'action-runtime-nested': 'error',
+  'action-runtime-unresolved': 'warning',
+  'local-action-runtime': 'error',
+  'setup-node-eol': 'warning',
+  'file-unparseable': 'warning',
+  'ignore-expired': 'warning',
+};
 
 /** SARIF 2.1.0 for GitHub code scanning. */
 export function renderSarif(r: ScanResult, version: string): string {
@@ -90,17 +116,19 @@ export function renderSarif(r: ScanResult, version: string): string {
     name: id.replace(/(^|-)([a-z])/g, (_m, _d, c: string) => c.toUpperCase()),
     shortDescription: { text: RULES[id as keyof typeof RULES] },
     helpUri: 'https://github.com/cosmichackerx/node24-ready#rules',
-    defaultConfiguration: { level: id === 'action-runtime-unresolved' ? 'warning' : 'error' },
-    properties: { tags: ['maintainability', 'github-actions'], 'security-severity': id === 'action-runtime-unresolved' ? SECURITY.warning : SECURITY.error },
+    defaultConfiguration: { level: LEVEL[RULE_SEVERITY[id as keyof typeof RULES]] },
+    properties: { tags: ['maintainability', 'github-actions'], 'security-severity': SECURITY[RULE_SEVERITY[id as keyof typeof RULES]] },
   }));
-  const results = r.findings.map((f) => ({
+  const toResult = (f: Finding, suppression?: string): Record<string, unknown> => ({
     ruleId: f.rule,
     ruleIndex: ids.indexOf(f.rule),
     level: LEVEL[f.severity],
     message: { text: f.message + (suggestionText(f) ? `. ${suggestionText(f)}` : '') },
     locations: [{ physicalLocation: { artifactLocation: { uri: f.file, uriBaseId: '%SRCROOT%' }, region: { startLine: f.line, startColumn: f.column } } }],
     partialFingerprints: { 'node24Ready/v1': createHash('sha256').update(`${f.rule}\n${f.file}\n${f.uses}`).digest('hex').slice(0, 32) },
-  }));
+    ...(suppression !== undefined ? { suppressions: [{ kind: 'external', justification: suppression }] } : {}),
+  });
+  const results = [...r.findings.map((f) => toResult(f)), ...(r.ignored ?? []).map((i) => toResult(i.finding, i.reason))];
   return JSON.stringify(
     {
       $schema: 'https://json.schemastore.org/sarif-2.1.0.json',

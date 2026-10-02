@@ -1,6 +1,6 @@
 {
   "name": "node24-ready",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Find GitHub Actions workflows and actions that still run on the removed Node 20 runtime (or Node 12/16), look inside composite actions and reusable workflows, and show the smallest upgrade that declares node24.",
   "keywords": [
     "github-actions",

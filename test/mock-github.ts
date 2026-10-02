@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -10,6 +11,8 @@ export interface MockRepo {
 export interface MockServer {
   url: string;
   requests: string[];
+  /** Number of conditional requests answered with 304. */
+  revalidated: { count: number };
   close(): Promise<void>;
 }
 
@@ -21,11 +24,21 @@ export const composite = (...uses: string[]): string =>
 /** Fake of the two GitHub REST endpoints node24-ready uses. */
 export async function startMock(repos: Record<string, MockRepo>): Promise<MockServer> {
   const requests: string[] = [];
+  const revalidated = { count: 0 };
   const server: Server = createServer((req, res) => {
     const u = new URL(req.url ?? '/', 'http://localhost');
     requests.push(u.pathname + u.search);
     const m = /^\/repos\/([^/]+)\/([^/]+)\/(contents\/(.+)|tags)$/.exec(u.pathname);
     const repo = m ? repos[`${m[1]}/${m[2]}`] : undefined;
+    const send = (body: string, type: string): void => {
+      const etag = `"${createHash('sha1').update(body).digest('hex')}"`;
+      if (req.headers['if-none-match'] === etag) {
+        revalidated.count++;
+        res.writeHead(304, { etag }).end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': type, etag }).end(body);
+    };
     if (!m || !repo) {
       res.writeHead(404).end('{}');
       return;
@@ -33,18 +46,19 @@ export async function startMock(repos: Record<string, MockRepo>): Promise<MockSe
     if (m[3] === 'tags') {
       const page = Number(u.searchParams.get('page') ?? '1');
       const items = page === 1 ? repo.tags.map((t) => ({ name: t.name, commit: { sha: t.sha } })) : [];
-      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(items));
+      send(JSON.stringify(items), 'application/json');
       return;
     }
     const body = repo.files[`${decodeURIComponent(m[4] as string)}@${u.searchParams.get('ref')}`];
     if (body === undefined) res.writeHead(404).end('{}');
-    else res.writeHead(200, { 'content-type': 'text/plain' }).end(body);
+    else send(body, 'text/plain');
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const port = (server.address() as AddressInfo).port;
   return {
     url: `http://127.0.0.1:${port}`,
     requests,
+    revalidated,
     close: () => new Promise<void>((r) => server.close(() => r())),
   };
 }
