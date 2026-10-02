@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { CONFIG_FILE, ConfigError, parseConfig, type Config } from './config.js';
 import { fileAtBase, GitError } from './diff.js';
-import { applyFixes, planFixes } from './fix.js';
+import { applyFixes, planFixes, writePlan } from './fix.js';
+import { planPins } from './pin.js';
+import { GitHubClient } from './github.js';
 import { RateLimitError } from './github.js';
 import { meetsThreshold, renderGithub, renderJson, renderMarkdown, renderSarif, renderText } from './report.js';
 import { scan } from './scan.js';
@@ -27,7 +29,8 @@ Options:
       --no-eol           skip the setup-node end-of-life rule
       --today <date>     YYYY-MM-DD used for expiry and end-of-life checks (for tests)
       --fix              rewrite uses: lines to the suggested node24-capable release (review the changelog first)
-      --dry-run          with --fix: write nothing, print a unified diff (git apply / patch -p1 accept it)
+      --pin-only         only replace tag refs by the commit SHA they point to now (same major, no upgrade); with --dry-run prints a diff
+      --dry-run          with --fix or --pin-only: write nothing, print a unified diff (git apply / patch -p1 accept it)
       --no-suggest       do not look for upgrade targets (fewer API requests)
       --cache-dir <dir>  cache API responses (ETag revalidation costs no rate limit; SHA-pinned files are never re-fetched). Env: NODE24_READY_CACHE
       --no-fallback      when the API rate limit is reached, stop instead of reading raw.githubusercontent.com / git ls-remote (public repos)
@@ -73,6 +76,7 @@ export async function run(
         'fail-on': { type: 'string', default: 'error' },
         fix: { type: 'boolean', default: false },
         'dry-run': { type: 'boolean', default: false },
+        'pin-only': { type: 'boolean', default: false },
         'no-fallback': { type: 'boolean', default: false },
         'changed-since': { type: 'string' },
         config: { type: 'string' },
@@ -113,8 +117,12 @@ export async function run(
     io.stderr('node24-ready: --today must look like 2026-10-02\n');
     return 2;
   }
-  if (values['dry-run'] && !values.fix) {
-    io.stderr('node24-ready: --dry-run only makes sense together with --fix\n');
+  if (values['dry-run'] && !values.fix && !values['pin-only']) {
+    io.stderr('node24-ready: --dry-run only makes sense together with --fix or --pin-only\n');
+    return 2;
+  }
+  if (values['pin-only'] && (values.fix || values['changed-since'])) {
+    io.stderr('node24-ready: --pin-only cannot be combined with --fix or --changed-since\n');
     return 2;
   }
   if (values.fix && values['changed-since']) {
@@ -134,6 +142,15 @@ export async function run(
       } else if (existsSync(join(cwd, CONFIG_FILE))) {
         config = parseConfig(readFileSync(join(cwd, CONFIG_FILE), 'utf8'));
       }
+    }
+    if (values['pin-only']) {
+      const client = new GitHubClient({ ...(values['no-fallback'] ? { fallback: false } : {}), ...(values['api-url'] ? { apiUrl: values['api-url'] } : io.env.GITHUB_API_URL ? { apiUrl: io.env.GITHUB_API_URL } : {}), ...(token ? { token } : {}), ...(values['cache-dir'] || io.env.NODE24_READY_CACHE ? { cacheDir: resolve(cwd, (values['cache-dir'] || io.env.NODE24_READY_CACHE) as string) } : {}) });
+      const plan = await planPins({ paths: positionals.length ? positionals : ['.'], cwd, client });
+      if (values['dry-run']) for (const f of plan.files) io.stdout(f.diff);
+      else for (const c of writePlan(plan)) io.stderr(`node24-ready: pinned ${c.file}:${c.line}: ${c.from} -> ${c.to}\n`);
+      for (const s of plan.skipped) io.stderr(`node24-ready: skipped ${s.file}:${s.line} ${s.uses}: ${s.reason}\n`);
+      io.stderr(`node24-ready: ${values['dry-run'] ? 'dry run: would pin' : 'pinned'} ${plan.changes.length} line(s) in ${plan.files.length} file(s); ${plan.alreadyPinned} already pinned; ${plan.skipped.length} skipped\n`);
+      return 0;
     }
     const result = await scan({
       ...(config ? { config } : {}),

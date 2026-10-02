@@ -27,7 +27,7 @@ The `node20`/`node24` fact lives in the **`action.yml` of the exact ref you pin*
 
 ```bash
 # needs Node 20+; GITHUB_TOKEN is optional but raises the API limit from 60 to 5000 requests/hour
-git clone --branch v0.3.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
+git clone --branch v0.4.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
 npm ci                                   # also compiles the CLI (prepare script)
 export GITHUB_TOKEN="$(gh auth token)"
 node dist/src/cli.js /path/to/your/repo  # exit code 1 when something declares a removed runtime
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.3.0
+      - uses: cosmichackerx/node24-ready@v0.4.0
         with:
           fail-on: error          # error | warning | never
 ```
@@ -66,7 +66,7 @@ Errors show up as annotations on the workflow files and as a table in the job su
       security-events: write
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.3.0
+      - uses: cosmichackerx/node24-ready@v0.4.0
         with:
           sarif-file: node24-ready.sarif
           fail-on: never
@@ -130,6 +130,27 @@ $ node24-ready --fix --dry-run
        - run: npm ci
 node24-ready: dry run: 2 line(s) in 1 file(s) would change; nothing was written
 ```
+
+**Pin first, upgrade later:** `--pin-only` does not look at runtimes at all. It replaces every `uses: owner/repo@<tag>` by the commit the tag points to *today*, with the most specific release on that commit as a comment, so behaviour does not change and the major never moves. Branch refs (`@main`), refs that are already full SHAs, local and `docker://` actions are left alone and listed on stderr. It is idempotent and works with `--dry-run`. Real output against github.com (checked with `git apply --check`; `actions/checkout`'s `v4` tag was the same commit as `v4.4.0` at the time):
+
+```text
+$ node24-ready --pin-only --dry-run
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -3,6 +3,6 @@
+   a:
+     runs-on: ubuntu-latest
+     steps:
+-      - uses: actions/checkout@v4
+-      - uses: actions/setup-node@v4.1.0
++      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
++      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+       - uses: peter-evans/create-pull-request@main
+node24-ready: skipped .github/workflows/ci.yml:8 peter-evans/create-pull-request@main: 'main' is not among the tags of peter-evans/create-pull-request (a branch, ...); branches are never pinned
+node24-ready: dry run: would pin 2 line(s) in 1 file(s); 0 already pinned; 1 skipped
+```
+
+Limits: only the first 300 tags of a repository are searched; a moving tag can change between the lookup and the merge of your pull request; pinning does not make a bad action good (combine with the normal scan).
 
 Machine readable (`--format json`, one finding):
 
@@ -230,7 +251,8 @@ node24-ready [paths...] [options]     paths: directories or workflow/action file
       --no-eol           skip the setup-node end-of-life rule
       --cache-dir <dir>  cache API responses (ETag revalidation is free); env NODE24_READY_CACHE
       --fix              rewrite uses: lines to the suggested node24-capable release
-      --dry-run          with --fix: write nothing, print a unified diff (git apply / patch -p1)
+      --pin-only         only pin: tag refs become the commit SHA they point to now (same major, no upgrade)
+      --dry-run          with --fix or --pin-only: write nothing, print a unified diff (git apply / patch -p1)
       --no-fallback      stop at the API rate limit instead of using raw.githubusercontent.com / git ls-remote
       --no-suggest       do not look for upgrade targets (fewer API requests)
       --api-url <url>    GitHub API base (GitHub Enterprise Server)
