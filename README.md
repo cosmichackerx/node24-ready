@@ -27,9 +27,13 @@ The `node20`/`node24` fact lives in the **`action.yml` of the exact ref you pin*
 
 ```bash
 # needs Node 20+; GITHUB_TOKEN is optional but raises the API limit from 60 to 5000 requests/hour
+git clone --branch v0.1.1 https://github.com/cosmichackerx/node24-ready && cd node24-ready
+npm ci                                   # also compiles the CLI (prepare script)
 export GITHUB_TOKEN="$(gh auth token)"
-npx github:cosmichackerx/node24-ready .          # scan the repository in the current directory
+node dist/src/cli.js /path/to/your/repo  # exit code 1 when something declares a removed runtime
 ```
+
+(There is no npm package yet; see the roadmap.)
 
 As a GitHub Action (no `setup-node`, no node20 action inside; it runs the bundled file with the runner's Node):
 
