@@ -121,3 +121,14 @@ jobs:
         with:
           path: test/fixtures/bad-workflow
           fail-on: never
+
+  dependabot-gaps:
+    name: dependabot-gaps (released action, consumer test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: cosmichackerx/dependabot-gaps@v0.1.0
+        with:
+          fail-on: warning
