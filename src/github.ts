@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -20,6 +21,38 @@ export interface ClientOptions {
   maxConcurrency?: number;
   /** Directory for the response cache (ETag revalidation; commit-SHA refs are never re-fetched). */
   cacheDir?: string;
+  /**
+   * When the REST API is rate limited, read files from raw.githubusercontent.com and list tags with `git ls-remote`
+   * (neither counts against the API limit). Default true for github.com; off for other API URLs unless `rawUrl` is set.
+   */
+  fallback?: boolean;
+  /** Base URL of the raw-file host (default `https://raw.githubusercontent.com`; set it to test or to mirror). */
+  rawUrl?: string;
+  /** Tag lister for the fallback (default: `git ls-remote --tags https://github.com/<owner>/<repo>.git`). Public repositories only. */
+  gitTags?: (owner: string, repo: string) => Promise<Tag[] | null>;
+}
+
+/** Parse `git ls-remote --tags` output; peeled (`^{}`) lines win because they carry the commit of an annotated tag. */
+export function parseLsRemote(out: string): Tag[] {
+  const tags = new Map<string, string>();
+  for (const line of out.split('\n')) {
+    const m = /^([0-9a-f]{40})\trefs\/tags\/(.+?)(\^\{\})?$/.exec(line.trim());
+    if (!m) continue;
+    const name = m[2] as string;
+    if (m[3] || !tags.has(name)) tags.set(name, m[1] as string);
+  }
+  return [...tags].map(([name, sha]) => ({ name, sha }));
+}
+
+function lsRemoteTags(owner: string, repo: string): Promise<Tag[] | null> {
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      ['ls-remote', '--tags', `https://github.com/${owner}/${repo}.git`],
+      { timeout: 30_000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GCM_INTERACTIVE: 'never' } },
+      (err, stdout) => resolve(err ? null : parseLsRemote(stdout)),
+    );
+  });
 }
 
 export class RateLimitError extends Error {}
@@ -41,7 +74,13 @@ export class GitHubClient {
   private readonly queue: (() => void)[] = [];
   private readonly maxConcurrency: number;
   private readonly cacheDir: string | undefined;
+  private readonly fallbackAllowed: boolean;
+  private readonly rawUrl: string;
+  private readonly gitTagsImpl: (owner: string, repo: string) => Promise<Tag[] | null>;
+  private fellBack = false;
   requests = 0;
+  /** Lookups answered through raw.githubusercontent.com or `git ls-remote` after the API rate limit was hit. */
+  fallbackLookups = 0;
   /** Answered from the cache without a request, or revalidated with a free 304. */
   cacheHits = 0;
 
@@ -52,6 +91,9 @@ export class GitHubClient {
     this.retryDelayMs = opts.retryDelayMs ?? 400;
     this.maxConcurrency = opts.maxConcurrency ?? 6;
     this.cacheDir = opts.cacheDir;
+    this.rawUrl = (opts.rawUrl ?? 'https://raw.githubusercontent.com').replace(/\/+$/, '');
+    this.gitTagsImpl = opts.gitTags ?? lsRemoteTags;
+    this.fallbackAllowed = opts.fallback ?? (opts.rawUrl !== undefined || this.apiUrl === 'https://api.github.com');
     if (this.cacheDir) mkdirSync(this.cacheDir, { recursive: true });
   }
 
@@ -138,6 +180,7 @@ export class GitHubClient {
         this.cacheHits++;
         return { status: 'ok', text: cached.body };
       }
+      if (this.fellBack) return await this.rawFile(owner, repo, path, ref, key, cached);
       const res = await this.request(`/repos/${owner}/${repo}/contents/${enc}?ref=${encodeURIComponent(ref)}`, 'application/vnd.github.raw+json', cached?.etag);
       if (res.status === 304 && cached) {
         this.cacheHits++;
@@ -150,9 +193,33 @@ export class GitHubClient {
       this.writeCache(key, { ...(etag ? { etag } : {}), body: text });
       return { status: 'ok', text };
     } catch (err) {
+      if (err instanceof RateLimitError && this.fallbackAllowed) {
+        this.fellBack = true;
+        return this.fetchFile(owner, repo, path, ref);
+      }
       if (err instanceof RateLimitError) throw err;
       return { status: 'error', message: (err as Error).message };
     }
+  }
+
+  /** Fallback: the raw file host. Not subject to the REST API rate limit; supports ETag revalidation as well. */
+  private async rawFile(owner: string, repo: string, path: string, ref: string, key: string, cached: CacheEntry | undefined): Promise<FileResult> {
+    const url = `${this.rawUrl}/${owner}/${repo}/${ref.split('/').map(encodeURIComponent).join('/')}/${path.split('/').map(encodeURIComponent).join('/')}`;
+    const headers: Record<string, string> = { 'User-Agent': 'node24-ready' };
+    if (cached?.etag) headers['If-None-Match'] = cached.etag;
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    this.fallbackLookups++;
+    const res = await this.slot(() => this.fetchImpl(url, { headers }));
+    if (res.status === 304 && cached) {
+      this.cacheHits++;
+      return { status: 'ok', text: cached.body };
+    }
+    if (res.status === 404) return { status: 'missing' };
+    if (!res.ok) return { status: 'error', message: `HTTP ${res.status} (raw fallback)` };
+    const text = await res.text();
+    const etag = res.headers.get('etag');
+    this.writeCache(key, { ...(etag ? { etag } : {}), body: text });
+    return { status: 'ok', text };
   }
 
   /** Tags of a repository (up to 300), or null when the repository cannot be listed. */
@@ -168,6 +235,7 @@ export class GitHubClient {
 
   private async fetchTags(owner: string, repo: string): Promise<Tag[] | null> {
     const out: Tag[] = [];
+    if (this.fellBack) return this.fallbackTags(owner, repo);
     try {
       for (let page = 1; page <= 3; page++) {
         const key = `tags:${owner}/${repo}:${page}`;
@@ -188,9 +256,22 @@ export class GitHubClient {
         if (items.length < 100) break;
       }
     } catch (err) {
+      if (err instanceof RateLimitError && this.fallbackAllowed) {
+        this.fellBack = true;
+        return this.fallbackTags(owner, repo);
+      }
       if (err instanceof RateLimitError) throw err;
       return null;
     }
     return out;
+  }
+
+  private async fallbackTags(owner: string, repo: string): Promise<Tag[] | null> {
+    this.fallbackLookups++;
+    try {
+      return await this.slot(() => this.gitTagsImpl(owner, repo));
+    } catch {
+      return null;
+    }
   }
 }

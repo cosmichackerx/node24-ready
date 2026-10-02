@@ -34,7 +34,7 @@ function summaryLine(r: ScanResult): string {
     r.summary.ignored ? `${r.summary.ignored} ignored by ${CONFIG_FILE}` : '',
     r.summary.hidden ? `${r.summary.hidden} on unchanged lines hidden by --changed-since` : '',
   ].filter(Boolean);
-  return `${head}${extra.length ? ` (${extra.join('; ')})` : ''} Checked ${r.summary.distinctActions} distinct action reference(s) in ${r.summary.files} file(s) with ${r.summary.fetches} API request(s).`;
+  return `${head}${extra.length ? ` (${extra.join('; ')})` : ''} Checked ${r.summary.distinctActions} distinct action reference(s) in ${r.summary.files} file(s) with ${r.summary.fetches} API request(s)${r.summary.fallbackLookups ? ` and ${r.summary.fallbackLookups} lookup(s) through the raw/git fallback (API rate limit reached)` : ''}.`;
 }
 
 export function renderText(r: ScanResult): string {

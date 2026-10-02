@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 - 2026-10-03
+
+* **Rate-limit fallback (issue #5):** when the REST API limit is hit, files are read from `raw.githubusercontent.com` and tags are listed with `git ls-remote` (public repositories; the token never goes to git). The summary and one stderr line say how many lookups used it. `--no-fallback` keeps the old hard stop.
+* **`--fix --dry-run` (issue #7, first half):** prints a unified diff that `git apply` accepts (LF and CRLF files), writes nothing. `--pin-only` is not implemented yet.
+* **Corpus scripts (issue #8):** `scripts/corpus/fetch.py` and `compare.py` reproduce the precision measurement (fetch workflows of popular repositories; compare against an independent implementation).
+* Dev dependencies: esbuild 0.28.2, TypeScript 7 (Dependabot), `@types/node` majors ignored; the repository's own CI uses dependabot-gaps v0.2.0 in PR mode.
+
 ## 0.2.0 - 2026-10-03
 
 * New rule `setup-node-eol` (issue #1): end-of-life Node.js versions in `actions/setup-node` (`node-version`, version files, `lts/<codename>`, matrix expansion).

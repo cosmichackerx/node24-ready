@@ -27,7 +27,7 @@ The `node20`/`node24` fact lives in the **`action.yml` of the exact ref you pin*
 
 ```bash
 # needs Node 20+; GITHUB_TOKEN is optional but raises the API limit from 60 to 5000 requests/hour
-git clone --branch v0.2.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
+git clone --branch v0.3.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
 npm ci                                   # also compiles the CLI (prepare script)
 export GITHUB_TOKEN="$(gh auth token)"
 node dist/src/cli.js /path/to/your/repo  # exit code 1 when something declares a removed runtime
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.2.0
+      - uses: cosmichackerx/node24-ready@v0.3.0
         with:
           fail-on: error          # error | warning | never
 ```
@@ -66,7 +66,7 @@ Errors show up as annotations on the workflow files and as a table in the job su
       security-events: write
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.2.0
+      - uses: cosmichackerx/node24-ready@v0.3.0
         with:
           sarif-file: node24-ready.sarif
           fail-on: never
@@ -110,6 +110,26 @@ s256-corpus/git-cliff/.github/workflows/cd.yml
 ```
 
 `--fix` on a copy of that husky directory rewrote 5 lines in `deploy.yml` (`checkout@v4` -> `@v5`, `setup-node@v4` -> `@v5`, ...), and a second run printed `No action declaring node12/16/20 found ...` with exit code 0. Always read the upstream changelog of each major bump (they can have breaking input changes) and run your CI.
+
+**Preview before you rewrite:** `--fix --dry-run` writes nothing and prints a unified diff on stdout (the summary goes to stderr), so you can review it, save it (`> fix.patch`) and `git apply` it. Real output (also checked with `git apply --check`):
+
+```text
+$ node24-ready --fix --dry-run
+--- a/.github/workflows/a.yml
++++ b/.github/workflows/a.yml
+@@ -4,8 +4,8 @@
+   build:
+     runs-on: ubuntu-latest
+     steps:
+-      - uses: actions/checkout@v3
+-      - uses: actions/setup-node@v3
++      - uses: actions/checkout@v5
++      - uses: actions/setup-node@v5
+         with:
+           node-version: 22
+       - run: npm ci
+node24-ready: dry run: 2 line(s) in 1 file(s) would change; nothing was written
+```
 
 Machine readable (`--format json`, one finding):
 
@@ -193,6 +213,8 @@ Real output on a three-step workflow (one entry active, one expired):
 
 Every distinct `uses:` reference costs one or two API requests. `--cache-dir <dir>` (or `NODE24_READY_CACHE`) stores responses with their ETag: revalidation of an unchanged file answers `304` and does not count against the primary rate limit, and files pinned by full SHA are never requested twice. In CI, cache that directory between runs. (I exhausted a 5000/hour token while measuring a 240-repository corpus before adding this.)
 
+**When the limit is reached anyway** (a large organisation, or no token: 60 requests per hour), the client no longer stops. It switches for the rest of the run to `raw.githubusercontent.com` for `action.yml` files and to `git ls-remote --tags https://github.com/<owner>/<repo>.git` for tag lists; neither counts against the REST limit. The summary says how many lookups went that way, and stderr gets one line. Limits of the fallback: public repositories only (the git call is unauthenticated and never receives your token), and `git` must be on `PATH` for the upgrade suggestions (without it you still get the `declares node20` findings, just no target version). `--no-fallback` restores the old hard stop with exit code `2`. Verified here against the real hosts by pointing the REST URL at a server that always answers `403 x-ratelimit-remaining: 0`: `actions/checkout@v3` and `actions/setup-node@v3` were still resolved and got suggestions through the fallback; the unit tests use local look-alike servers and parse real `git ls-remote` output (annotated tags included).
+
 ## CLI
 
 ```text
@@ -208,6 +230,8 @@ node24-ready [paths...] [options]     paths: directories or workflow/action file
       --no-eol           skip the setup-node end-of-life rule
       --cache-dir <dir>  cache API responses (ETag revalidation is free); env NODE24_READY_CACHE
       --fix              rewrite uses: lines to the suggested node24-capable release
+      --dry-run          with --fix: write nothing, print a unified diff (git apply / patch -p1)
+      --no-fallback      stop at the API rate limit instead of using raw.githubusercontent.com / git ls-remote
       --no-suggest       do not look for upgrade targets (fewer API requests)
       --api-url <url>    GitHub API base (GitHub Enterprise Server)
       --list-rules       print the rule ids and exit
@@ -231,6 +255,8 @@ I looked for existing tools before writing this one (2026-10). Honest summary:
 If one of these fits you better, use it. This project exists because none of them did "authoritative + transitive + smallest upgrade + SARIF".
 
 ## Measured precision (and what that does not prove)
+
+The corpus scripts are shipped in [`scripts/corpus/`](scripts/corpus) (`fetch.py` downloads the workflows, `compare.py` runs the tool and the independent checker and lists every disagreement), so the numbers below can be reproduced; they will drift as actions release new versions. I re-ran the shipped scripts on the same 240-repository corpus (2026-10-03): **1264 of 1277 distinct references agree (99.0 %)**, 13 disagreements, the same count as in the hand-checked run below (this re-run did not repeat the hand check; 8 of the 13 are references the independent checker could not resolve through the raw host, 5 are tool `nested` versus checker `ok`, the same class as the guardian/setup-scala case). A first run without retries scored 98.7 % because the raw host returned transient errors, which is why `compare.py` now backs off and retries.
 
 I ran v0.2.0 over a corpus of **240 public repositories** (top-starred across 20 languages, pushed after 2026-09-01; fetched 2026-10-02): **2916 workflow files, 18 104 `uses:` sites, 1277 distinct remote action references**. Result: 3199 `action-runtime-deprecated` + 161 `action-runtime-nested` errors, 81 `setup-node-eol` findings (57 warnings, 24 infos), 6 unresolved references, 1 unparseable file.
 

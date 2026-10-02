@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { CONFIG_FILE, ConfigError, parseConfig, type Config } from './config.js';
 import { fileAtBase, GitError } from './diff.js';
-import { applyFixes } from './fix.js';
+import { applyFixes, planFixes } from './fix.js';
 import { RateLimitError } from './github.js';
 import { meetsThreshold, renderGithub, renderJson, renderMarkdown, renderSarif, renderText } from './report.js';
 import { scan } from './scan.js';
@@ -27,8 +27,10 @@ Options:
       --no-eol           skip the setup-node end-of-life rule
       --today <date>     YYYY-MM-DD used for expiry and end-of-life checks (for tests)
       --fix              rewrite uses: lines to the suggested node24-capable release (review the changelog first)
+      --dry-run          with --fix: write nothing, print a unified diff (git apply / patch -p1 accept it)
       --no-suggest       do not look for upgrade targets (fewer API requests)
       --cache-dir <dir>  cache API responses (ETag revalidation costs no rate limit; SHA-pinned files are never re-fetched). Env: NODE24_READY_CACHE
+      --no-fallback      when the API rate limit is reached, stop instead of reading raw.githubusercontent.com / git ls-remote (public repos)
       --api-url <url>    GitHub API base (GitHub Enterprise Server, or a test server)
       --list-rules       print the rule ids and exit
   -v, --version          print the version
@@ -70,6 +72,8 @@ export async function run(
         output: { type: 'string', short: 'o' },
         'fail-on': { type: 'string', default: 'error' },
         fix: { type: 'boolean', default: false },
+        'dry-run': { type: 'boolean', default: false },
+        'no-fallback': { type: 'boolean', default: false },
         'changed-since': { type: 'string' },
         config: { type: 'string' },
         'no-config': { type: 'boolean', default: false },
@@ -109,6 +113,10 @@ export async function run(
     io.stderr('node24-ready: --today must look like 2026-10-02\n');
     return 2;
   }
+  if (values['dry-run'] && !values.fix) {
+    io.stderr('node24-ready: --dry-run only makes sense together with --fix\n');
+    return 2;
+  }
   if (values.fix && values['changed-since']) {
     io.stderr('node24-ready: --fix cannot be combined with --changed-since\n');
     return 2;
@@ -135,8 +143,15 @@ export async function run(
       paths: positionals.length ? positionals : ['.'],
       cwd,
       suggestions: !values['no-suggest'] || values.fix === true,
-      clientOptions: { ...(values['api-url'] ? { apiUrl: values['api-url'] } : io.env.GITHUB_API_URL ? { apiUrl: io.env.GITHUB_API_URL } : {}), ...(token ? { token } : {}), ...(values['cache-dir'] || io.env.NODE24_READY_CACHE ? { cacheDir: resolve(cwd, (values['cache-dir'] || io.env.NODE24_READY_CACHE) as string) } : {}) },
+      clientOptions: { ...(values['no-fallback'] ? { fallback: false } : {}), ...(values['api-url'] ? { apiUrl: values['api-url'] } : io.env.GITHUB_API_URL ? { apiUrl: io.env.GITHUB_API_URL } : {}), ...(token ? { token } : {}), ...(values['cache-dir'] || io.env.NODE24_READY_CACHE ? { cacheDir: resolve(cwd, (values['cache-dir'] || io.env.NODE24_READY_CACHE) as string) } : {}) },
     });
+    if (result.summary.fallbackLookups) io.stderr(`node24-ready: GitHub API rate limit reached; ${result.summary.fallbackLookups} lookup(s) went through raw.githubusercontent.com / git ls-remote (public repositories only; unresolved ones stay unresolved)\n`);
+    if (values.fix && values['dry-run']) {
+      const plan = planFixes(result.findings, cwd);
+      for (const f of plan.files) io.stdout(f.diff);
+      io.stderr(plan.changes.length ? `node24-ready: dry run: ${plan.changes.length} line(s) in ${plan.files.length} file(s) would change; nothing was written\n` : 'node24-ready: dry run: nothing it could rewrite safely\n');
+      return 0;
+    }
     if (values.fix) {
       const changes = applyFixes(result.findings, cwd);
       for (const c of changes) io.stderr(`node24-ready: fixed ${c.file}:${c.line}: ${c.from} -> ${c.to}\n`);
