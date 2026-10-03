@@ -27,7 +27,7 @@ The `node20`/`node24` fact lives in the **`action.yml` of the exact ref you pin*
 
 ```bash
 # needs Node 20+; GITHUB_TOKEN is optional but raises the API limit from 60 to 5000 requests/hour
-git clone --branch v0.4.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
+git clone --branch v0.4.1 https://github.com/cosmichackerx/node24-ready && cd node24-ready
 npm ci                                   # also compiles the CLI (prepare script)
 export GITHUB_TOKEN="$(gh auth token)"
 node dist/src/cli.js /path/to/your/repo  # exit code 1 when something declares a removed runtime
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.4.0
+      - uses: cosmichackerx/node24-ready@v0.4.1
         with:
           fail-on: error          # error | warning | never
 ```
@@ -66,7 +66,7 @@ Errors show up as annotations on the workflow files and as a table in the job su
       security-events: write
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.4.0
+      - uses: cosmichackerx/node24-ready@v0.4.1
         with:
           sarif-file: node24-ready.sarif
           fail-on: never
