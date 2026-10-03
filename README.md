@@ -28,7 +28,7 @@ The `node20`/`node24` fact lives in the **`action.yml` of the exact ref you pin*
 
 ```bash
 # needs Node 20+; GITHUB_TOKEN is optional but raises the API limit from 60 to 5000 requests/hour
-git clone --branch v0.5.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
+git clone --branch v0.6.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
 npm ci                                   # also compiles the CLI (prepare script)
 export GITHUB_TOKEN="$(gh auth token)"
 node dist/src/cli.js /path/to/your/repo  # exit code 1 when something declares a removed runtime
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.5.0
+      - uses: cosmichackerx/node24-ready@v0.6.0
         with:
           fail-on: error          # error | warning | never
 ```
@@ -67,7 +67,7 @@ Errors show up as annotations on the workflow files and as a table in the job su
       security-events: write
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.5.0
+      - uses: cosmichackerx/node24-ready@v0.6.0
         with:
           sarif-file: node24-ready.sarif
           fail-on: never
@@ -228,6 +228,46 @@ Things to know before you trust the numbers:
 * The weekly runtime watch also lists open `Announcement` issues of actions/runner-images that talk about deprecations or labels and are neither cited in `src/deadlines.ts` nor listed as reviewed in `scripts/watch/known-announcements.txt`, and opens an issue when it finds one. "Listed" means read, not necessarily complete.
 * Other tools in this corner: [runner-drift](https://github.com/Booyaka101/runner-drift) (`guard --fail-on-retirement` does a similar `runs-on` check, and it also diffs the tool versions between runner images, which this does not); actionlint flags unknown labels but has no calendar.
 
+### `--fix-runners`: rewrite the labels (opt-in)
+
+`--fix-runners` moves a retiring `runs-on` label one generation up, in the same family and architecture, and nothing else: `macos-14` -> `macos-15`, `macos-14-large` -> `macos-15-large`, `macos-14-xlarge` -> `macos-15-xlarge`, `ubuntu-22.04` -> `ubuntu-24.04`, `ubuntu-22.04-arm` -> `ubuntu-24.04-arm`. It handles scalars, quoted scalars, list items and `matrix` entries (including `include`), keeps comments and CRLF line endings, is idempotent, and `--dry-run` prints a diff that `git apply` accepts. It prints one caveat line per rewritten label. It is a separate flag so that `--fix` keeps meaning "node24 `uses:` bumps". Real output (`--today 2026-10-03`, two workflows; `git apply --check` accepts the diff):
+
+```text
+$ node24-ready --no-suggest --fix-runners --dry-run
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -1,6 +1,6 @@
+ on: push
+ jobs:
+   a:
+-    runs-on: macos-14
++    runs-on: macos-15
+     steps:
+       - run: echo hi
+--- a/.github/workflows/matrix.yml
++++ b/.github/workflows/matrix.yml
+@@ -4,6 +4,6 @@
+     runs-on: ${{ matrix.os }}
+     strategy:
+       matrix:
+-        os: [macos-14, ubuntu-latest, ubuntu-22.04]
++        os: [macos-15, ubuntu-latest, ubuntu-24.04]
+     steps:
+       - run: make test
+node24-ready: .github/workflows/ci.yml:4: macos-14 -> macos-15 (macOS 15 image: different default Xcode and tool versions (same arm64 architecture))
+node24-ready: .github/workflows/matrix.yml:7: macos-14 -> macos-15 (macOS 15 image: different default Xcode and tool versions (same arm64 architecture))
+node24-ready: .github/workflows/matrix.yml:7: ubuntu-22.04 -> ubuntu-24.04 (Ubuntu 24.04 image: newer default toolchains and a different package set; check apt packages and pinned tool versions)
+node24-ready: dry run: 3 label(s) in 2 file(s) would change; nothing was written
+```
+
+Caveats, stated plainly:
+
+* The new image is **not** the same machine: Xcode, compilers, Python and the preinstalled package set differ, so run your CI after the rewrite. The rewrite does not check that your jobs still pass.
+* It never touches `macos-latest`/`ubuntu-latest`, `macos-13` and the other already retired labels (their replacement changes the CPU architecture or jumps several generations, which is a decision for you), self-hosted labels, or `runs-on` values built from expressions.
+* When the target label already appears as a runner in the same file (for example `[macos-14, macos-15]`), the entry is left alone so no duplicate is created.
+* A matrix label that is also used elsewhere (`if: matrix.os == 'macos-14'`, a cache key, an artifact name) is rewritten at its definition only; those other places are yours to update. Reviewing the diff is part of the workflow.
+* There is no oracle for this: GitHub offers no way to ask "is this label valid", so the checks are unit tests on the text rewrite (position check, boundary check, idempotence, CRLF, `git apply`), not a run against GitHub's scheduler.
+
 ## Ignore list with an expiry: `.node24-ready.json`
 
 Accept a known finding for a while instead of turning the whole check off:
@@ -291,6 +331,7 @@ node24-ready [paths...] [options]     paths: directories or workflow/action file
       --no-eol           skip the setup-node end-of-life rule
       --cache-dir <dir>  cache API responses (ETag revalidation is free); env NODE24_READY_CACHE
       --fix              rewrite uses: lines to the suggested node24-capable release
+      --fix-runners      rewrite retiring runs-on labels one generation up (macos-14* -> macos-15*, ubuntu-22.04* -> ubuntu-24.04*)
       --pin-only         only pin: tag refs become the commit SHA they point to now (same major, no upgrade)
       --dry-run          with --fix or --pin-only: write nothing, print a unified diff (git apply / patch -p1)
       --no-fallback      stop at the API rate limit instead of using raw.githubusercontent.com / git ls-remote

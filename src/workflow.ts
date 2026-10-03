@@ -27,6 +27,8 @@ export interface RunnerSite {
   column: number;
   label: string;
   fromMatrix: boolean;
+  /** Where the label text itself is (differs from line/column for `${{ matrix.x }}`: the matrix entry). */
+  at?: { line: number; column: number };
 }
 
 export interface SetupNodeSite {
@@ -92,21 +94,23 @@ export function parseFile(file: string, text: string): ParsedFile {
   };
 
   /** values a matrix key can take: lists under `matrix.<key>` plus `include` entries */
-  const matrixValues = (matrix: Node | null, key: string): string[] | null => {
+  const matrixSites = (matrix: Node | null, key: string): { text: string; line: number; column: number }[] | null => {
     if (!isMap(matrix)) return null;
-    const vals: string[] = [];
-    const list = getMap(matrix, key);
-    if (isSeq(list)) for (const it of list.items) {
+    const vals: { text: string; line: number; column: number }[] = [];
+    const push = (it: unknown): void => {
       const t = scalarText(it);
-      if (t !== null) vals.push(t);
-    }
+      if (t === null) return;
+      const r = isScalar(it) ? it.range : undefined;
+      const pos = r ? lc.linePos(r[0]) : { line: 0, col: 0 };
+      vals.push({ text: t, line: pos.line, column: pos.col });
+    };
+    const list = getMap(matrix, key);
+    if (isSeq(list)) for (const it of list.items) push(it);
     const inc = getMap(matrix, 'include');
-    if (isSeq(inc)) for (const it of inc.items) if (isMap(it)) {
-      const t = scalarText(getMap(it, key));
-      if (t !== null) vals.push(t);
-    }
+    if (isSeq(inc)) for (const it of inc.items) if (isMap(it)) push(getMap(it, key));
     return vals.length ? vals : null;
   };
+  const matrixValues = (matrix: Node | null, key: string): string[] | null => matrixSites(matrix, key)?.map((v) => v.text) ?? null;
 
   const noteSetupNode = (step: YAMLMap, matrix: Node | null): void => {
     const withMap = getMap(step, 'with');
@@ -144,7 +148,7 @@ export function parseFile(file: string, text: string): ParsedFile {
       const label = scalarText(n);
       if (label === null || !isScalar(n) || !n.range || label.includes('${{')) return;
       const pos = lc.linePos(n.range[0]);
-      out.runners.push({ file, line: pos.line, column: pos.col, label, fromMatrix });
+      out.runners.push({ file, line: pos.line, column: pos.col, label, fromMatrix, at: { line: pos.line, column: pos.col } });
     };
     if (isSeq(node)) {
       for (const it of node.items) noteRunsOn(it as Node, matrix);
@@ -159,7 +163,7 @@ export function parseFile(file: string, text: string): ParsedFile {
     const expr = /^\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}$/.exec(node.value.trim());
     if (expr) {
       const pos = lc.linePos(node.range[0]);
-      for (const v of matrixValues(matrix, expr[1] as string) ?? []) out.runners.push({ file, line: pos.line, column: pos.col, label: v, fromMatrix: true });
+      for (const v of matrixSites(matrix, expr[1] as string) ?? []) out.runners.push({ file, line: pos.line, column: pos.col, label: v.text, fromMatrix: true, ...(v.line ? { at: { line: v.line, column: v.column } } : {}) });
       return;
     }
     add(node, false);
