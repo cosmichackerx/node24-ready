@@ -56,3 +56,22 @@ test('the issue has a stable dedupe key', () => {
   assert.match(a.title, /^Node runtime facts: 2 change\(s\) to look at \[[0-9a-f]{8}\]$/);
   assert.match(a.body, new RegExp(`node24-ready:watch:${a.key}`));
 });
+
+test('runner-images announcements: only unreviewed deprecation/label news is a signal', async () => {
+  const { announcementSignals } = await import('../scripts/watch/watch-runtimes.mjs');
+  const issues = [
+    { title: '[macOS] The macOS 14 Sonoma based runner images will begin deprecation on July 6th', html_url: 'https://github.com/actions/runner-images/issues/13518' },
+    { title: '[Ubuntu] Ubuntu 22 images will be fully unsupported by April 17th', html_url: 'https://github.com/actions/runner-images/issues/14254' },
+    { title: '[Windows] MySQL will be updated from 8.0 to 8.4', html_url: 'https://github.com/actions/runner-images/issues/14818' },
+    { title: '[Windows] The `windows-11-arm` image label will use Visual Studio 2026', html_url: 'https://github.com/actions/runner-images/issues/14602' },
+    { title: '[Ubuntu] Ubuntu 20 will be unsupported', html_url: 'https://github.com/actions/runner-images/issues/99999' },
+  ];
+  const cited = 'sources: ["https://github.com/actions/runner-images/issues/13518"]';
+  const sig = announcementSignals(issues, cited, 'https://github.com/actions/runner-images/issues/14254 # reviewed\n');
+  assert.equal(sig.length, 2);
+  assert.match(sig[0], /windows-11-arm/);
+  assert.match(sig[1], /issues\/99999/);
+  const res = analyse({ ...base(), announcements: issues, deadlinesText: cited, knownAnnouncements: '' });
+  assert.ok(res.signals.some((s) => s.includes('issues/14254')));
+  assert.deepEqual(analyse(base()).signals, []); // announcements are optional input
+});

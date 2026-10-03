@@ -18,7 +18,7 @@ const WF = [
   'on: push',
   'jobs:',
   '  a:',
-  '    runs-on: ubuntu-latest',
+  '    runs-on: ubuntu-24.04',
   '    steps:',
   '      - uses: acme/checkout@v4',
   '      - uses: acme/checkout@v4.2.0 # needed for X',

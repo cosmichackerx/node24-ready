@@ -28,7 +28,7 @@ The `node20`/`node24` fact lives in the **`action.yml` of the exact ref you pin*
 
 ```bash
 # needs Node 20+; GITHUB_TOKEN is optional but raises the API limit from 60 to 5000 requests/hour
-git clone --branch v0.4.1 https://github.com/cosmichackerx/node24-ready && cd node24-ready
+git clone --branch v0.5.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
 npm ci                                   # also compiles the CLI (prepare script)
 export GITHUB_TOKEN="$(gh auth token)"
 node dist/src/cli.js /path/to/your/repo  # exit code 1 when something declares a removed runtime
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.4.1
+      - uses: cosmichackerx/node24-ready@v0.5.0
         with:
           fail-on: error          # error | warning | never
 ```
@@ -67,7 +67,7 @@ Errors show up as annotations on the workflow files and as a table in the job su
       security-events: write
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.4.1
+      - uses: cosmichackerx/node24-ready@v0.5.0
         with:
           sarif-file: node24-ready.sarif
           fail-on: never
@@ -185,9 +185,48 @@ Machine readable (`--format json`, one finding):
 | `action-runtime-nested` | error | A composite action or reusable workflow you call contains such an action (the `via` chain shows where). |
 | `action-runtime-unresolved` | warning | `action.yml` could not be fetched (private, deleted, wrong ref, rate limit), so the runtime is unknown. |
 | `setup-node-eol` | warning / info | `actions/setup-node` installs a Node.js release that is end of life (`node-version`, `.nvmrc`, `.node-version`, `.tool-versions`, `lts/<codename>`; `${{ matrix.x }}` is expanded). Warning when pinned, info for matrix entries or EOL within 90 days. |
+| `runner-image-retiring` | error / warning | `runs-on` names a hosted runner label that is retired (`macos-14*`, `ubuntu-22.04*`, and the already gone `macos-13`, `macos-12`, `windows-2019`, `ubuntu-20.04`) or retires on a published date. Error from 30 days before the next brownout or retirement, in a brownout, and after retirement; a warning before that, and for matrix entries until they fail. |
+| `runner-latest-migration` | info / warning | `ubuntu-latest` is being moved from Ubuntu 24.04 to 26.04 (window 2026-10-19 to 2026-11-19). Info, a warning from 14 days before the window, gone after it. |
+| `docker-content-trust` | warning / error | `DOCKER_CONTENT_TRUST` switched on, `docker trust sign|inspect|revoke|key|signer`, or `notary.docker.io` in a workflow or action file. Docker Content Trust shuts down on 2026-12-08. Warning until 30 days before, then an error. |
 | `file-unparseable` | warning | A workflow the YAML parser rejects but GitHub may accept; its `uses:` lines are still found by a line scan. |
 | `ignore-expired` | warning | An entry of `.node24-ready.json` is past its `expires` date (it no longer suppresses anything). |
 | `local-action-runtime` | error | The repository's own `action.yml` declares `runs.using: node20` (or older): set `node24` and release. |
+
+## Dated deadlines (`--no-deadlines` turns them off)
+
+These rules read dates that GitHub and Docker published. Each entry in `src/deadlines.ts` names its source and the day it was last checked against it (2026-10-03). The scanner works on whole days and takes "today" from the clock (`--today` overrides it for tests).
+
+| What | Dates | Official source |
+|---|---|---|
+| `macos-14`, `macos-14-large`, `macos-14-xlarge` | deprecation 2026-07-06; brownouts 14:00 UTC to 00:00 UTC on Oct 5, 12, 16, 19, 23, 26, 29 and 30; **retired 2026-11-02** | [runner-images #13518](https://github.com/actions/runner-images/issues/13518), [changelog 2026-10-01](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/) |
+| `ubuntu-22.04`, `ubuntu-22.04-arm` | deprecation 2026-09-17; brownouts on 2027-03-23, 03-30, 04-06, 04-13; **retired 2027-04-17** | [runner-images #14254](https://github.com/actions/runner-images/issues/14254) |
+| `ubuntu-latest` | moves to Ubuntu 26.04 gradually between **2026-10-19 and 2026-11-19** | [changelog 2026-09-17](https://github.blog/changelog/2026-09-17-ubuntu-26-generally-available-and-latest-migration/), [runner-images #14748](https://github.com/actions/runner-images/issues/14748) |
+| Docker Content Trust and the Notary v1 service | write brownouts 2026-07-14/15, read brownouts 2026-08-10/12 (all past); **shutdown 2026-12-08** | [Docker blog, 2026-06-16](https://www.docker.com/blog/docker-content-trust-retirement-and-migration-guidance/), [Docker docs](https://docs.docker.com/engine/security/trust/) |
+| already retired: `macos-13` (Dec 2025), `windows-2019` (2025-06-30), `ubuntu-20.04` (2025-04-15), `macos-12` (2024-12-03) | | [#13046](https://github.com/actions/runner-images/issues/13046), [#12045](https://github.com/actions/runner-images/issues/12045), [#11101](https://github.com/actions/runner-images/issues/11101), [#10721](https://github.com/actions/runner-images/issues/10721) |
+
+Real output (`--today 2026-10-03`, a workflow with a `macos-14` job, an `os` matrix and Docker Content Trust):
+
+```text
+.github/workflows/release.yml
+     4:3   warning docker-content-trust       DOCKER_CONTENT_TRUST is switched on: Docker Content Trust and the Notary v1 service shut down on 2026-12-08 (66 days). Signing breaks first. Set DOCKER_CONTENT_TRUST=0 to keep pulls working, pin images by digest, and sign with Cosign or Notation
+    10:14  warning runner-image-retiring      macos-14 is retired on 2026-11-02 (30 days); next brownout 2026-10-05T14:00Z (2 days). Move to macos-latest, macos-15 or macos-26.
+    10:14  warning runner-image-retiring      ubuntu-22.04 is retired on 2027-04-17 (196 days); next brownout 2027-03-23T14:00Z (171 days). Move to ubuntu-24.04, ubuntu-26.04 or ubuntu-latest.
+    10:14  info    runner-latest-migration    ubuntu-latest moves from Ubuntu 24.04 to 26.04 between 2026-10-19 and 2026-11-19 (starts in 16 days). Test with ubuntu-26.04 or pin ubuntu-24.04
+    13:14  warning docker-content-trust       docker trust sign: Docker Content Trust and the Notary v1 service shut down on 2026-12-08 (66 days). Signing breaks first. Set DOCKER_CONTENT_TRUST=0 to keep pulls working, pin images by digest, and sign with Cosign or Notation
+    15:14  error   runner-image-retiring      macos-14 is retired on 2026-11-02 (30 days); next brownout 2026-10-05T14:00Z (2 days). Move to macos-latest, macos-15 or macos-26.
+
+6 finding(s): 1 error, 4 warning. Checked 0 distinct action reference(s) in 1 file(s) with 0 API request(s).
+```
+
+Things to know before you trust the numbers:
+
+* The Ubuntu 22.04 announcement writes its brownout times as "14:00 UTC - 00:00 UTC" on the same date; I read them like the macOS ones (14:00 UTC until midnight). The `macos-13` announcement says December 4 in its title and December 8 in its text; it is long gone either way.
+* No Windows Server 2022 or 2025 deprecation is announced at the time of writing, so those labels are not flagged. `windows-latest` and `windows-2025` already moved to Visual Studio 2026 in June 2026 (not a retirement).
+* A job on a retired or browning-out label fails in GitHub's scheduler, not in your code, so it can look like flakiness. The brownout windows are in UTC.
+* Matrix entries (`runs-on: ${{ matrix.os }}`) are reported at the `runs-on` line and are never louder than a warning until the label fails.
+* Not covered on purpose: self-hosted runner version enforcement, `runs-on` values built from expressions you pass in (`${{ inputs.runner }}`), and shell scripts or Dockerfiles outside `.github/` (Docker Content Trust is only looked for in workflow and action files).
+* The weekly runtime watch also lists open `Announcement` issues of actions/runner-images that talk about deprecations or labels and are neither cited in `src/deadlines.ts` nor listed as reviewed in `scripts/watch/known-announcements.txt`, and opens an issue when it finds one. "Listed" means read, not necessarily complete.
+* Other tools in this corner: [runner-drift](https://github.com/Booyaka101/runner-drift) (`guard --fail-on-retirement` does a similar `runs-on` check, and it also diffs the tool versions between runner images, which this does not); actionlint flags unknown labels but has no calendar.
 
 ## Ignore list with an expiry: `.node24-ready.json`
 
@@ -272,6 +311,7 @@ I looked for existing tools before writing this one (2026-10). Honest summary:
 |---|---|---|
 | [rsymo/github-actions-runtime-audit](https://github.com/rsymo/github-actions-runtime-audit) | Flags actions that are "likely affected" | Heuristic; node24-ready reads the real `runs.using` of the exact ref and looks inside composites/reusable workflows |
 | [azat-io/actions-up](https://github.com/azat-io/actions-up), [ylabonte/github-actions-updater](https://github.com/ylabonte/github-actions-updater) | Generic "bump everything to latest" updaters | Great for general upkeep; node24-ready answers a narrower question (which pins are actually affected) and proposes the *smallest* clean major |
+| [runner-drift](https://github.com/Booyaka101/runner-drift) | Locks the tool versions your workflows use, diffs runner images, `guard --fail-on-retirement` for pinned labels | Overlaps only on retiring `runs-on` labels. It goes much deeper on image tool changes; node24-ready adds the Docker Content Trust and `ubuntu-latest` rules and keeps everything in one report |
 | Dependabot / Renovate | Open update PRs | They do not know which updates matter for the Node runtime; run node24-ready first to prioritise |
 | The `Node.js 20 is deprecated` annotation in run logs | Warns after a run | Only for the actions that executed, and only when they ran |
 

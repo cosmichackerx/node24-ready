@@ -4,6 +4,8 @@
 //   1. src/eol.ts NODE_EOL / LTS_NAMES  vs  https://github.com/nodejs/Release schedule.json   (new release lines, changed end dates, new LTS codenames)
 //   2. the `runs.using` node values GitHub documents (metadata-syntax page)  vs  scripts/watch/known-runtimes.txt
 //   3. GitHub changelog (label: actions) entries about Node / runtimes  vs  scripts/watch/known-changelog.txt
+//   4. open `Announcement` issues of actions/runner-images about deprecations / label changes  vs  the sources cited in src/deadlines.ts
+//      and scripts/watch/known-announcements.txt (an announcement nobody has looked at is a signal, a listed one is not)
 //
 // Exit codes: 0 nothing to report, 3 something to look at, 2 network/usage error. `--out FILE` writes JSON with an issue title and body.
 // The changelog feed holds only the latest ~10 entries and the docs page is scraped for a sentence ("Use node24 for Node.js v24"),
@@ -15,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 export const SCHEDULE_URL = 'https://raw.githubusercontent.com/nodejs/Release/main/schedule.json';
 export const DOCS_URL = 'https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax';
+export const ANNOUNCEMENTS_URL = 'https://api.github.com/repos/actions/runner-images/issues?labels=Announcement&state=open&per_page=50';
 export const FEED_URL = 'https://github.blog/changelog/label/actions/feed/';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
@@ -64,9 +67,19 @@ export function feedItems(xml) {
   return items;
 }
 
+const ANNOUNCEMENT_NEWS = /deprecat|unsupported|retire|removed|will use|label/i;
+
+/** Open runner-images announcements that talk about deprecations or labels and are neither cited in deadlines.ts nor listed as reviewed. */
+export function announcementSignals(issues, deadlinesText, knownText) {
+  const known = parseList(knownText);
+  return issues
+    .filter((i) => i.html_url && ANNOUNCEMENT_NEWS.test(i.title || '') && !deadlinesText.includes(i.html_url) && !known.has(i.html_url))
+    .map((i) => `New runner-images announcement not in src/deadlines.ts: [${i.title}](${i.html_url})`);
+}
+
 const NODE_NEWS = /node\s?\d+|node\.js|runs\.using|javascript actions|actions runtime/i;
 
-export function analyse({ schedule, eolText, docsText, feedXml, knownRuntimes, knownChangelog }) {
+export function analyse({ schedule, eolText, docsText, feedXml, knownRuntimes, knownChangelog, announcements, deadlinesText = '', knownAnnouncements = '' }) {
   const signals = [];
   signals.push(...compareSchedule(schedule, parseEolTs(eolText)));
   const now = docsRuntimes(docsText);
@@ -76,6 +89,7 @@ export function analyse({ schedule, eolText, docsText, feedXml, knownRuntimes, k
   const seen = parseList(knownChangelog);
   const news = feedItems(feedXml).filter((i) => NODE_NEWS.test(i.title) && !seen.has(i.link));
   for (const i of news) signals.push(`New changelog entry: [${i.title}](${i.link})`);
+  if (announcements) signals.push(...announcementSignals(announcements, deadlinesText, knownAnnouncements));
   return { signals, runtimes: now, docsValues: now.length, feedMatches: feedItems(feedXml).filter((i) => NODE_NEWS.test(i.title)).length };
 }
 
@@ -86,14 +100,14 @@ export function renderIssue(signals) {
     'Opened by the scheduled `Runtime watch` workflow.', '', '### Signals', '', ...signals.map((s) => `- ${s}`), '', '### What to do', '',
     '1. `src/eol.ts`: add the Node line / LTS codename or fix the end-of-life date; run the tests.',
     '2. `src/workflow.ts` `MIN_NODE_MAJOR`: change it only when GitHub has announced a removal (not for a new runtime value alone).',
-    '3. Record the signal as known: `scripts/watch/known-runtimes.txt` / `known-changelog.txt` (add the value or link).',
+    '3. Record the signal as known: `scripts/watch/known-runtimes.txt` / `known-changelog.txt` / `known-announcements.txt` (add the value or link). For a runner-images announcement, first add its dates to `src/deadlines.ts` if it is a retirement.',
     'Close this issue when the lists cover every line.', '', `<!-- node24-ready:watch:${key} -->`,
   ].join('\n');
   return { title, body, key };
 }
 
-async function get(url) {
-  const res = await fetch(url, { headers: { 'user-agent': 'node24-ready-watch', accept: '*/*' } });
+async function get(url, token) {
+  const res = await fetch(url, { headers: { 'user-agent': 'node24-ready-watch', accept: '*/*', ...(token && url.startsWith('https://api.github.com/') ? { authorization: `Bearer ${token}` } : {}) } });
   if (!res.ok) throw new Error(`${url} returned HTTP ${res.status}`);
   return res.text();
 }
@@ -104,6 +118,8 @@ async function main(argv) {
   const inputs = {
     knownRuntimes: known(arg('--known-runtimes', join(HERE, 'known-runtimes.txt'))),
     knownChangelog: known(arg('--known-changelog', join(HERE, 'known-changelog.txt'))),
+    knownAnnouncements: known(arg('--known-announcements', join(HERE, 'known-announcements.txt'))),
+    deadlinesText: readFileSync(join(ROOT, 'src', 'deadlines.ts'), 'utf8'),
     eolText: readFileSync(join(ROOT, 'src', 'eol.ts'), 'utf8'),
   };
   try {
@@ -112,8 +128,11 @@ async function main(argv) {
       inputs.schedule = JSON.parse(readFileSync(join(dir, 'schedule.json'), 'utf8'));
       inputs.docsText = readFileSync(join(dir, 'metadata-syntax.html'), 'utf8');
       inputs.feedXml = readFileSync(join(dir, 'feed.xml'), 'utf8');
+      if (existsSync(join(dir, 'announcements.json'))) inputs.announcements = JSON.parse(readFileSync(join(dir, 'announcements.json'), 'utf8'));
     } else {
       [inputs.schedule, inputs.docsText, inputs.feedXml] = [JSON.parse(await get(SCHEDULE_URL)), await get(DOCS_URL), await get(FEED_URL)];
+      inputs.announcements = JSON.parse(await get(ANNOUNCEMENTS_URL, process.env.GITHUB_TOKEN));
+      if (!Array.isArray(inputs.announcements)) throw new Error('runner-images announcements: unexpected API answer');
     }
   } catch (e) {
     console.error(`error: ${e.message}`);
@@ -122,6 +141,7 @@ async function main(argv) {
   if (argv.includes('--print-baseline')) {
     for (const r of docsRuntimes(inputs.docsText)) console.log(`${r}  # baseline`);
     for (const i of feedItems(inputs.feedXml).filter((x) => NODE_NEWS.test(x.title))) console.error(`${i.link}  # baseline: ${i.title}`);
+    for (const i of announcementSignals(inputs.announcements ?? [], inputs.deadlinesText, '')) console.error(`${/\((https:[^)]+)\)/.exec(i)?.[1]}  # announcements baseline`);
     return 0;
   }
   const res = analyse(inputs);

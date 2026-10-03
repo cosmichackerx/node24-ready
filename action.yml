@@ -29,6 +29,9 @@ inputs:
   eol:
     description: "Check actions/setup-node for end-of-life Node.js versions (true or false)."
     default: "true"
+  deadlines:
+    description: "Check dated deadlines: retired or retiring runner labels, ubuntu-latest migration, Docker Content Trust (true or false)."
+    default: "true"
   working-directory:
     description: Directory to run in.
     default: "."
@@ -52,12 +55,14 @@ runs:
         INPUT_CHANGED_SINCE: ${{ inputs.changed-since }}
         INPUT_CONFIG: ${{ inputs.config }}
         INPUT_EOL: ${{ inputs.eol }}
+        INPUT_DEADLINES: ${{ inputs.deadlines }}
       run: |
         cli="$ACTION_DIR/action/index.mjs"
         read -r -a paths <<< "$INPUT_PATH"
         common=(-C "$INPUT_WD")
         if [ "$INPUT_SUGGEST" != "true" ]; then common+=(--no-suggest); fi
         if [ "$INPUT_EOL" != "true" ]; then common+=(--no-eol); fi
+        if [ "$INPUT_DEADLINES" != "true" ]; then common+=(--no-deadlines); fi
         if [ -n "$INPUT_CHANGED_SINCE" ]; then common+=(--changed-since "$INPUT_CHANGED_SINCE"); fi
         if [ -n "$INPUT_CONFIG" ]; then common+=(--config "$INPUT_CONFIG"); fi
         if [ -n "$INPUT_SARIF" ]; then

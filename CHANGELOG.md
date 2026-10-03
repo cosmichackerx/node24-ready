@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 - 2026-10-03
+
+Dated deadlines (new rules, on by default; `--no-deadlines` or `deadlines: false` turns them off):
+
+* `runner-image-retiring`: `runs-on` labels `macos-14*` (brownouts from 2026-10-05, retired 2026-11-02), `ubuntu-22.04*` (retired 2027-04-17) and the already retired `macos-13`, `macos-12`, `windows-2019`, `ubuntu-20.04`. `runs-on` scalars, lists, `labels:` maps and `${{ matrix.x }}` are read.
+* `runner-latest-migration`: `ubuntu-latest` moves to Ubuntu 26.04 between 2026-10-19 and 2026-11-19.
+* `docker-content-trust`: `DOCKER_CONTENT_TRUST`, `docker trust ...`, `notary.docker.io` (shutdown 2026-12-08).
+* Every date cites its official source in `src/deadlines.ts` and the README; the weekly watch now also reports unreviewed runner-images announcements.
+* Behaviour change: with the default `fail-on: error`, a workflow on `macos-14` fails the step from 30 days before the next brownout. Use `deadlines: false` to opt out.
+
 ## 0.4.1 - 2026-10-03
 
 * Weekly runtime watcher (`scripts/watch/watch-runtimes.mjs`, `.github/workflows/runtime-watch.yml`): Node release schedule vs `src/eol.ts`, documented `runs.using` values, Node-related changelog entries. One deduplicated issue.

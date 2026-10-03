@@ -24,7 +24,7 @@ describe('applyFixes', () => {
       'on: push',
       'jobs:',
       '  a:',
-      '    runs-on: ubuntu-latest',
+      '    runs-on: ubuntu-24.04',
       '    steps:',
       '      - uses: acme/checkout@v4   # keep this',
       `      - uses: "acme/checkout@${sha(4)}" # v4.2.0`,
@@ -43,7 +43,7 @@ describe('applyFixes', () => {
         'on: push',
         'jobs:',
         '  a:',
-        '    runs-on: ubuntu-latest',
+        '    runs-on: ubuntu-24.04',
         '    steps:',
         '      - uses: acme/checkout@v5   # keep this',
         `      - uses: "acme/checkout@${sha(51)}" # v5.1.0`,
@@ -79,7 +79,7 @@ describe('--fix --dry-run', () => {
       const dir = mkdtempSync(join(tmpdir(), 'n24dry-'));
       mkdirSync(join(dir, '.github/workflows'), { recursive: true });
       const file = join(dir, '.github/workflows/ci.yml');
-      const original = ['on: push', 'jobs:', '  a:', '    runs-on: ubuntu-latest', '    steps:', '      - uses: acme/checkout@v4', ...Array.from({ length: 9 }, (_, i) => `      - run: echo ${i}`), `      - uses: "acme/checkout@${sha(4)}" # v4.2.0`, ''].join(eol);
+      const original = ['on: push', 'jobs:', '  a:', '    runs-on: ubuntu-24.04', '    steps:', '      - uses: acme/checkout@v4', ...Array.from({ length: 9 }, (_, i) => `      - run: echo ${i}`), `      - uses: "acme/checkout@${sha(4)}" # v4.2.0`, ''].join(eol);
       writeFileSync(file, original);
       let out = '';
       let err = '';

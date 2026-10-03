@@ -27,6 +27,7 @@ Options:
       --config <file>    ignore list (default: ${CONFIG_FILE}; with --changed-since it is read from the base ref)
       --no-config        do not read an ignore list
       --no-eol           skip the setup-node end-of-life rule
+      --no-deadlines     skip the dated deadline rules (runner labels, ubuntu-latest, Docker Content Trust)
       --today <date>     YYYY-MM-DD used for expiry and end-of-life checks (for tests)
       --fix              rewrite uses: lines to the suggested node24-capable release (review the changelog first)
       --pin-only         only replace tag refs by the commit SHA they point to now (same major, no upgrade); with --dry-run prints a diff
@@ -82,6 +83,7 @@ export async function run(
         config: { type: 'string' },
         'no-config': { type: 'boolean', default: false },
         'no-eol': { type: 'boolean', default: false },
+        'no-deadlines': { type: 'boolean', default: false },
         today: { type: 'string' },
         'no-suggest': { type: 'boolean', default: false },
         'api-url': { type: 'string' },
@@ -157,6 +159,7 @@ export async function run(
       ...(values['changed-since'] ? { changedSince: values['changed-since'] } : {}),
       ...(values.today ? { today: values.today } : {}),
       eol: !values['no-eol'],
+      deadlines: !values['no-deadlines'],
       paths: positionals.length ? positionals : ['.'],
       cwd,
       suggestions: !values['no-suggest'] || values.fix === true,

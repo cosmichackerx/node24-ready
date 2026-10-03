@@ -25,7 +25,7 @@ function project(files: Record<string, string>): string {
 }
 
 const wf = (...uses: string[]): string =>
-  `on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n${uses.map((u) => `      - uses: ${u}\n`).join('')}`;
+  `on: push\njobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n${uses.map((u) => `      - uses: ${u}\n`).join('')}`;
 
 const opts = (cwd: string) => ({ paths: ['.'], cwd, clientOptions: { apiUrl: mock.url, retryDelayMs: 0 } });
 

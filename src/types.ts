@@ -6,6 +6,9 @@ export type Rule =
   | 'action-runtime-unresolved'
   | 'local-action-runtime'
   | 'setup-node-eol'
+  | 'runner-image-retiring'
+  | 'runner-latest-migration'
+  | 'docker-content-trust'
   | 'file-unparseable'
   | 'ignore-expired';
 
@@ -15,6 +18,9 @@ export const RULES: Record<Rule, string> = {
   'action-runtime-unresolved': 'The action metadata could not be fetched (private, deleted, wrong ref, network or rate limit), so its runtime is unknown.',
   'local-action-runtime': "This repository's own action.yml declares a removed Node runtime (runs.using).",
   'setup-node-eol': 'actions/setup-node installs a Node.js version that has reached (or is close to) end of life.',
+  'runner-image-retiring': 'runs-on names a hosted runner label that GitHub has retired or will retire on a published date (brownouts make jobs fail before that).',
+  'runner-latest-migration': 'ubuntu-latest is being moved from Ubuntu 24.04 to 26.04 in a published window; tools and packages change.',
+  'docker-content-trust': 'Docker Content Trust (DOCKER_CONTENT_TRUST, docker trust, notary.docker.io) is used; the Notary v1 service shuts down on 2026-12-08.',
   'file-unparseable': 'The YAML parser rejected this file (GitHub may still accept it); uses: lines were found by a line scan or not at all.',
   'ignore-expired': 'An entry of .node24-ready.json has expired and no longer suppresses anything.',
 };
