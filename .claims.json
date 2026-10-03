@@ -1,0 +1,8 @@
+{
+  "claims": [
+    {"id": "tests in the validation table", "file": "README.md", "regex": "\\| (\\d+) tests \\| green \\| - \\|", "expect": {"command": "node scripts/run-tests.mjs 2>&1", "regex": "^(?:# |ℹ )tests (\\d+)"}},
+    {"id": "tests in the limitations section", "file": "README.md", "regex": "localhost, (\\d+) tests\\)", "expect": {"command": "node scripts/run-tests.mjs 2>&1", "regex": "^(?:# |ℹ )tests (\\d+)"}},
+    {"id": "tests in the development section", "file": "README.md", "regex": "typecheck \\+ (\\d+) tests", "expect": {"command": "node scripts/run-tests.mjs 2>&1", "regex": "^(?:# |ℹ )tests (\\d+)"}},
+    {"id": "action pins in the README", "file": "README.md", "regex": "node24-ready@v([0-9.]+)", "expect": {"file": "package.json", "regex": "\"version\": \"([0-9.]+)\""}}
+  ]
+}

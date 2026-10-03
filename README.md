@@ -407,13 +407,13 @@ What this is **not**: the "ground truth" is the `runs.using` in each action's `a
 * `docker://` and `./local` action references are skipped (a local `action.yml` is checked via `local-action-runtime`).
 * Dynamic `uses:` values (expressions) are not resolvable.
 * The evaluator treats "nesting limit reached" as OK (reported only as depth-4 unresolved when the chain is cut by the limit).
-* Verified on the test suite (a fake GitHub API on localhost, 53 tests) and on the corpus above; see the precision section for what that does and does not show.
+* Verified on the test suite (a fake GitHub API on localhost, 109 tests) and on the corpus above; see the precision section for what that does and does not show.
 
 ## Development
 
 ```bash
 npm ci
-npm test            # typecheck + 53 tests (node:test) against a local mock GitHub API
+npm test            # typecheck + 109 tests (node:test) against a local mock GitHub API
 npm run bundle      # regenerate action/index.mjs (committed; CI fails if it is stale)
 ```
 
