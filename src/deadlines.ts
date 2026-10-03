@@ -207,10 +207,18 @@ export interface DctSite {
 }
 
 const DCT_PATTERNS: Array<[RegExp, (m: RegExpExecArray) => string | null]> = [
-  [/\bDOCKER_CONTENT_TRUST\b(?!_)["']?\s*[:=]\s*["']?(\w+)/, (m) => (/^(1|true|yes|on)$/i.test(m[1] as string) ? 'DOCKER_CONTENT_TRUST is switched on' : null)],
+  [/\bDOCKER_CONTENT_TRUST\b(?!_)["']?(?:\s*[:=]\s*|\s+)["']?(\w+)/, (m) => (/^(1|true|yes|on)$/i.test(m[1] as string) ? 'DOCKER_CONTENT_TRUST is switched on' : null)],
   [/\bdocker\s+trust\s+(sign|inspect|revoke|key|signer)\b/, (m) => `docker trust ${m[1]}`],
   [/\bnotary\.docker\.io\b/, () => 'notary.docker.io (the Notary v1 server)'],
+  [/--disable-content-trust(?:=|\s+)["']?(false|0)\b/, () => 'content trust switched on with --disable-content-trust=false'],
 ];
+
+/** Files outside `.github` that can switch Docker Content Trust on: Dockerfiles, compose files, Kubernetes manifests and other YAML, shell scripts, Makefiles, .env files. */
+export const DCT_FILE_RE = /(^|\/)(Dockerfile(\.[^/]*)?|[^/]*\.Dockerfile|Containerfile(\.[^/]*)?|Makefile|GNUmakefile|[^/]*\.mk|[^/]*\.sh|\.env(\.[^/]*)?|[^/]*\.ya?ml)$/i;
+export const DCT_MAX_BYTES = 1_000_000;
+
+/** `- name: DOCKER_CONTENT_TRUST` with `value: "1"` on the next line, or `{ name: DOCKER_CONTENT_TRUST, value: "1" }` (Kubernetes / compose list form). */
+const DCT_NAME_VALUE = /(^|[\s{,])name:\s*["']?DOCKER_CONTENT_TRUST["']?\s*(?:,|\r?\n)\s*value:\s*["']?(\w+)/g;
 
 /** Lines that use Docker Content Trust. Whole-line comments are skipped; `DOCKER_CONTENT_TRUST: 0` is the recommended fix and is not reported. */
 export function dctSites(file: string, text: string): DctSite[] {
@@ -224,7 +232,19 @@ export function dctSites(file: string, text: string): DctSite[] {
       if (w) out.push({ file, line: i + 1, column: m.index + 1, what: w });
     }
   });
-  return out;
+  // list form (`name:` and `value:` on separate lines); the single-line patterns above cannot see it
+  const lineStarts: number[] = [0];
+  for (let i = 0; i < text.length; i++) if (text[i] === '\n') lineStarts.push(i + 1);
+  for (const m of text.matchAll(DCT_NAME_VALUE)) {
+    if (!/^(1|true|yes|on)$/i.test(m[2] as string)) continue;
+    const at = (m.index ?? 0) + (m[1] ?? '').length;
+    let lo = 0;
+    while (lo + 1 < lineStarts.length && (lineStarts[lo + 1] as number) <= at) lo++;
+    const lineText = text.slice(lineStarts[lo] as number, at);
+    if (/^\s*#/.test(lineText) || /#/.test(lineText)) continue;
+    out.push({ file, line: lo + 1, column: at - (lineStarts[lo] as number) + 1, what: 'DOCKER_CONTENT_TRUST is switched on' });
+  }
+  return out.sort((a, b) => a.line - b.line || a.column - b.column);
 }
 
 export function dctFindings(sites: DctSite[], opts: DeadlineOptions): Finding[] {

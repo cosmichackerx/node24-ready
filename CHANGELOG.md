@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0 - 2026-10-03
+
+* **Docker Content Trust outside `.github` (issue #27):** the `docker-content-trust` rule now also reads Dockerfiles/Containerfiles, Compose files, Kubernetes manifests (`env` as `name:`/`value:` pairs or flow maps) and other YAML, `*.sh`, Makefiles, `.env*` files, and recognises `--disable-content-trust=false` and the old `ENV DOCKER_CONTENT_TRUST 1` form. An explicit Dockerfile path works and is no longer read as a workflow. `--no-deadlines` skips all of it.
+
 ## 0.6.0 - 2026-10-03
 
 * **`--fix-runners` (issue #26):** rewrites retiring `runs-on` labels one generation up (`macos-14*` -> `macos-15*`, `ubuntu-22.04*` -> `ubuntu-24.04*`), in scalars, lists and matrix entries, with `--dry-run` diffs, CRLF safety, idempotence and a caveat line per label. Opt-in; `--fix` is unchanged.
