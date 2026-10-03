@@ -13,6 +13,27 @@
 
 Keywords: GitHub Actions, Node 20 deprecation, Node 24 migration, `runs.using`, node20 action audit, workflow linter, composite action, reusable workflow, SARIF, supply chain.
 
+## At a glance
+
+|  | Lite (try it in a minute) | Full (keep it in CI) |
+|---|---|---|
+| How | clone, `npm ci`, `node dist/src/cli.js .` (see [Quick start](#quick-start); no npm package yet) | the [GitHub Action](#quick-start) (SARIF, job summary), `--changed-since origin/main` [PR mode](#pr-mode---changed-since), the ignore list with an expiry, and the weekly [runtime watch](#runtime-watch-keeps-the-hard-coded-facts-honest) |
+
+### Validation / results
+
+Every number below is from this repository's own tests or scripts (see the linked sections). "Not proven" is as important as "Result".
+
+| What is claimed | Checked against | Size | Result | Not proven |
+|---|---|---|---|---|
+| `runs.using` is read correctly, including nested actions | An independent regex re-implementation on the same 240-repository corpus ([Measured precision](#measured-precision-and-what-that-does-not-prove)) | 1277 distinct action references | 1264 agree (99.0 %); of the 13 disagreements I checked by hand the tool was right in 12 and wrong in 1 (fixed) | Two implementations by one author can share a blind spot; ground truth is `action.yml`, not GitHub's runtime warnings |
+| Node end-of-life rule | 12 random findings read by hand against the file contents | 12 | all 12 correct | Small sample |
+| Dated runner / Docker deadlines | Dates copied from official announcements and changelogs, each cited in [src/deadlines.ts](src/deadlines.ts) and [Dated deadlines](#dated-deadlines---no-deadlines-turns-them-off) | 9 runner labels, `ubuntu-latest` and Docker Content Trust | Unit tests on the date arithmetic and the text matching | **No oracle**: GitHub's scheduler cannot be queried, so correctness rests on the cited pages; some announcements are ambiguous (stated in the README) |
+| `--fix-runners` | Unit tests (position check, matrix, CRLF, idempotence, `git apply --check`) | 7 tests | green | Not run against a real workflow on the new image; the new runner image is a different machine |
+| Docker Content Trust text matching | Hand review of every hit in 46 files from GitHub code search for the literal `DOCKER_CONTENT_TRUST` | 46 files, 29 flagged | 23 real uses, 6 documentation-like text; 17 correctly not flagged; 1 template-default enablement missed | Not a random sample; says nothing about files without the literal |
+| Rule logic | Unit tests on Linux, Windows, macOS (Node 20, 22, 24) | 102 tests | green | - |
+
+**Releases:** 9 releases, v0.1.0 (2026-10-02) to v0.7.0 (2026-10-03). See [CHANGELOG.md](CHANGELOG.md) and the [Releases page](https://github.com/cosmichackerx/node24-ready/releases). The weekly runtime watch opens one issue when Node's schedule, the documented `runs.using` values, or GitHub's runner-images announcements change; it does not release anything. The project is days old, so there is no long-term cadence to show.
+
 ## Why not just grep `uses:` or run a version bumper?
 
 The `node20`/`node24` fact lives in the **`action.yml` of the exact ref you pin**, not in the version number.
