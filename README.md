@@ -311,3 +311,17 @@ npm run bundle      # regenerate action/index.mjs (committed; CI fails if it is 
 ```
 
 MIT licensed. See [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md).
+
+## Runtime watch (keeps the hard-coded facts honest)
+
+Two things in this tool are tables, not logic: the Node end-of-life dates and LTS codenames in `src/eol.ts` ("update when new lines ship"), and the idea of which
+`runs.using` values exist. `.github/workflows/runtime-watch.yml` runs every Monday (and on demand) and `scripts/watch/watch-runtimes.mjs` compares them with
+
+- the [Node.js release schedule](https://github.com/nodejs/Release/blob/main/schedule.json) (a new line, a changed end date, a new LTS codename),
+- the `runs.using` values GitHub documents ("Use node24 for Node.js v24" on the metadata-syntax page), against `scripts/watch/known-runtimes.txt`,
+- the GitHub changelog feed for the `actions` label (only its latest ~10 entries), filtered for Node / runtime titles, against `scripts/watch/known-changelog.txt`.
+
+It opens **one deduplicated issue** (label `runtime-watch`). The Node schedule is authoritative; the docs page is scraped for one sentence and the changelog feed is short, so those two are signals, not proof.
+The `known-*` lists mean "known when the watcher started", not "reviewed". The first run found a real gap: Node 27 was in the schedule but not in `NODE_EOL` (added). What the watcher cannot do: tell you
+when GitHub *will* remove a runtime; `MIN_NODE_MAJOR` stays a manual decision after an announcement.
+

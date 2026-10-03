@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+* Weekly runtime watcher (`scripts/watch/watch-runtimes.mjs`, `.github/workflows/runtime-watch.yml`): Node release schedule vs `src/eol.ts`, documented `runs.using` values, Node-related changelog entries. One deduplicated issue.
+* `NODE_EOL` now has Node 27 (found by the watcher).
+
 ## 0.4.0 - 2026-10-03
 
 * **`--pin-only` (issue #7):** replace tag refs by the commit SHA they point to now, with the most specific release as a comment; same major, no upgrade, branches and existing SHAs untouched, idempotent, `--dry-run` supported (unified diff that `git apply` accepts), CRLF safe. Implemented with a shared edit planner (`planEdits`) that `--fix` now uses too.

@@ -20,6 +20,7 @@ export const NODE_EOL: Record<number, string> = {
   24: '2028-04-30',
   25: '2026-06-01',
   26: '2029-04-30',
+  27: '2030-04-30',
 };
 
 const LTS_NAMES: Record<string, number> = {
