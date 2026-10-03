@@ -28,7 +28,7 @@ The `node20`/`node24` fact lives in the **`action.yml` of the exact ref you pin*
 
 ```bash
 # needs Node 20+; GITHUB_TOKEN is optional but raises the API limit from 60 to 5000 requests/hour
-git clone --branch v0.6.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
+git clone --branch v0.7.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
 npm ci                                   # also compiles the CLI (prepare script)
 export GITHUB_TOKEN="$(gh auth token)"
 node dist/src/cli.js /path/to/your/repo  # exit code 1 when something declares a removed runtime
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.6.0
+      - uses: cosmichackerx/node24-ready@v0.7.0
         with:
           fail-on: error          # error | warning | never
 ```
@@ -67,7 +67,7 @@ Errors show up as annotations on the workflow files and as a table in the job su
       security-events: write
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.6.0
+      - uses: cosmichackerx/node24-ready@v0.7.0
         with:
           sarif-file: node24-ready.sarif
           fail-on: never
@@ -187,7 +187,7 @@ Machine readable (`--format json`, one finding):
 | `setup-node-eol` | warning / info | `actions/setup-node` installs a Node.js release that is end of life (`node-version`, `.nvmrc`, `.node-version`, `.tool-versions`, `lts/<codename>`; `${{ matrix.x }}` is expanded). Warning when pinned, info for matrix entries or EOL within 90 days. |
 | `runner-image-retiring` | error / warning | `runs-on` names a hosted runner label that is retired (`macos-14*`, `ubuntu-22.04*`, and the already gone `macos-13`, `macos-12`, `windows-2019`, `ubuntu-20.04`) or retires on a published date. Error from 30 days before the next brownout or retirement, in a brownout, and after retirement; a warning before that, and for matrix entries until they fail. |
 | `runner-latest-migration` | info / warning | `ubuntu-latest` is being moved from Ubuntu 24.04 to 26.04 (window 2026-10-19 to 2026-11-19). Info, a warning from 14 days before the window, gone after it. |
-| `docker-content-trust` | warning / error | `DOCKER_CONTENT_TRUST` switched on, `docker trust sign|inspect|revoke|key|signer`, or `notary.docker.io` in a workflow or action file. Docker Content Trust shuts down on 2026-12-08. Warning until 30 days before, then an error. |
+| `docker-content-trust` | warning / error | `DOCKER_CONTENT_TRUST` switched on, `docker trust sign|inspect|revoke|key|signer`, `--disable-content-trust=false` or `notary.docker.io` in a workflow or action file, a Dockerfile/Containerfile, a Docker Compose file, any other YAML (Kubernetes manifests: `env` entries as `name:`/`value:` pairs or flow maps), a shell script, a Makefile or an `.env` file. Docker Content Trust shuts down on 2026-12-08. Warning until 30 days before, then an error. |
 | `file-unparseable` | warning | A workflow the YAML parser rejects but GitHub may accept; its `uses:` lines are still found by a line scan. |
 | `ignore-expired` | warning | An entry of `.node24-ready.json` is past its `expires` date (it no longer suppresses anything). |
 | `local-action-runtime` | error | The repository's own `action.yml` declares `runs.using: node20` (or older): set `node24` and release. |
@@ -218,13 +218,15 @@ Real output (`--today 2026-10-03`, a workflow with a `macos-14` job, an `os` mat
 6 finding(s): 1 error, 4 warning. Checked 0 distinct action reference(s) in 1 file(s) with 0 API request(s).
 ```
 
+**How well does the Docker Content Trust text matching work?** I ran it on 46 files that GitHub code search returned for the literal `DOCKER_CONTENT_TRUST` (Dockerfiles, Compose files, CI YAML, shell scripts; searched 2026-10-03, not a random sample) and read every hit by hand. 29 files were flagged: 23 really switch Docker Content Trust on or use `docker trust`/Notary v1 (for example `ARG DOCKER_CONTENT_TRUST=1`, `- DOCKER_CONTENT_TRUST=1` in Compose, `docker trust key load`), and 6 are documentation-like text that the rule cannot tell from use (a quiz in a YAML file, and the CIS remediation text `export DOCKER_CONTENT_TRUST=1` in five docker-bench definition files). 17 files were correctly not flagged (`=0`, commented out, `DOCKER_CONTENT_TRUST_REPOSITORY_PASSPHRASE`, a regex in a rule file). One real enablement was missed: a Taskfile that sets the variable through a template default (`{{.DOCKER_CONTENT_TRUST | default "1"}}`). So roughly 4 in 5 flagged files are real uses in this sample; it says nothing about files that do not contain the literal. Use `.node24-ready.json` to ignore a documentation file.
+
 Things to know before you trust the numbers:
 
 * The Ubuntu 22.04 announcement writes its brownout times as "14:00 UTC - 00:00 UTC" on the same date; I read them like the macOS ones (14:00 UTC until midnight). The `macos-13` announcement says December 4 in its title and December 8 in its text; it is long gone either way.
 * No Windows Server 2022 or 2025 deprecation is announced at the time of writing, so those labels are not flagged. `windows-latest` and `windows-2025` already moved to Visual Studio 2026 in June 2026 (not a retirement).
 * A job on a retired or browning-out label fails in GitHub's scheduler, not in your code, so it can look like flakiness. The brownout windows are in UTC.
 * Matrix entries (`runs-on: ${{ matrix.os }}`) are reported at the `runs-on` line and are never louder than a warning until the label fails.
-* Not covered on purpose: self-hosted runner version enforcement, `runs-on` values built from expressions you pass in (`${{ inputs.runner }}`), and shell scripts or Dockerfiles outside `.github/` (Docker Content Trust is only looked for in workflow and action files).
+* Not covered on purpose: self-hosted runner version enforcement, `runs-on` values built from expressions you pass in (`${{ inputs.runner }}`), Helm templates that build the variable name from values, and Docker Content Trust set outside the repository (a CI variable, a machine-wide environment). Docker Content Trust is read from Dockerfiles, Containerfiles, `*.sh`, Makefiles/`*.mk`, `.env*` and every `*.yml`/`*.yaml` under the scanned paths (up to 1 MB each); `node_modules`, `vendor`, `dist`, `target`, `.git` and `.venv` are skipped. A Kubernetes `value:` that comes **before** its `name:` is not recognised. This is text matching, not YAML parsing, and there is no oracle for it (Docker offers no way to ask "is this repository affected").
 * The weekly runtime watch also lists open `Announcement` issues of actions/runner-images that talk about deprecations or labels and are neither cited in `src/deadlines.ts` nor listed as reviewed in `scripts/watch/known-announcements.txt`, and opens an issue when it finds one. "Listed" means read, not necessarily complete.
 * Other tools in this corner: [runner-drift](https://github.com/Booyaka101/runner-drift) (`guard --fail-on-retirement` does a similar `runs-on` check, and it also diffs the tool versions between runner images, which this does not); actionlint flags unknown labels but has no calendar.
 

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { applyIgnores, type Config } from './config.js';
 import { changedLines, filterChanged } from './diff.js';
-import { dctFindings, dctSites, runnerFindings, type DctSite } from './deadlines.js';
+import { DCT_FILE_RE, DCT_MAX_BYTES, dctFindings, dctSites, runnerFindings, type DctSite } from './deadlines.js';
 import { eolFindings } from './eol.js';
 import { GitHubClient, type ClientOptions } from './github.js';
 import { parseUses, refKey } from './refs.js';
@@ -14,6 +14,35 @@ import { parseFile, type RunnerSite, type SetupNodeSite } from './workflow.js';
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'vendor', 'target', '.venv']);
 const WORKFLOW_RE = /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/;
 const ACTION_RE = /(^|\/)action\.ya?ml$/;
+/** An explicit path to one of these is a Dockerfile, script or Makefile: only the Docker Content Trust scan reads it. */
+const NON_YAML_DCT_RE = /(^|\/)(Dockerfile(\.[^/]*)?|[^/]*\.Dockerfile|Containerfile(\.[^/]*)?|Makefile|GNUmakefile|[^/]*\.mk|[^/]*\.sh|\.env(\.[^/]*)?)$/i;
+
+/** Files that are not workflows or actions but can switch Docker Content Trust on (Dockerfiles, compose, Kubernetes manifests, scripts). Explicit files are taken as given. */
+export function discoverDctFiles(paths: string[], cwd: string, skip: Set<string>): string[] {
+  const out = new Set<string>();
+  const take = (abs: string, size: number): void => {
+    const rel = relative(cwd, abs).split(sep).join('/');
+    if (skip.has(abs) || WORKFLOW_RE.test(rel) || ACTION_RE.test(rel) || !DCT_FILE_RE.test(rel) || size > DCT_MAX_BYTES) return;
+    out.add(abs);
+  };
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name)) walk(full);
+      } else if (entry.isFile()) {
+        take(full, statSync(full).size);
+      }
+    }
+  };
+  for (const p of paths) {
+    const abs = resolve(cwd, p);
+    const st = statSync(abs);
+    if (st.isDirectory()) walk(abs);
+    else take(abs, st.size);
+  }
+  return [...out].sort();
+}
 
 /** Workflow and action metadata files below `paths` (files are taken as given). */
 export function discoverFiles(paths: string[], cwd: string): string[] {
@@ -32,7 +61,7 @@ export function discoverFiles(paths: string[], cwd: string): string[] {
     const abs = resolve(cwd, p);
     const st = statSync(abs);
     if (st.isDirectory()) walk(abs);
-    else out.add(abs);
+    else if (!NON_YAML_DCT_RE.test(abs.split(sep).join('/'))) out.add(abs);
   }
   return [...out].sort();
 }
@@ -67,6 +96,11 @@ export async function scan(opts: ScanOptions): Promise<ScanResult> {
   const runners: RunnerSite[] = [];
   const dct: DctSite[] = [];
   const today = opts.today ?? isoToday();
+  if (opts.deadlines !== false) {
+    for (const abs of discoverDctFiles(opts.paths, opts.cwd, new Set(files))) {
+      dct.push(...dctSites(relative(opts.cwd, abs).split(sep).join('/'), readFileSync(abs, 'utf8')));
+    }
+  }
 
   for (const abs of files) {
     const rel = relative(opts.cwd, abs).split(sep).join('/');
