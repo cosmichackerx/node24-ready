@@ -107,6 +107,7 @@ const RULE_SEVERITY: Record<keyof typeof RULES, Severity> = {
   'runner-image-retiring': 'error',
   'runner-latest-migration': 'warning',
   'docker-content-trust': 'warning',
+  'codeql-action-v3': 'warning',
   'file-unparseable': 'warning',
   'ignore-expired': 'warning',
 };

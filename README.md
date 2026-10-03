@@ -27,12 +27,12 @@ Every number below is from this repository's own tests or scripts (see the linke
 |---|---|---|---|---|
 | `runs.using` is read correctly, including nested actions | An independent regex re-implementation on the same 240-repository corpus ([Measured precision](#measured-precision-and-what-that-does-not-prove)) | 1277 distinct action references | 1264 agree (99.0 %); of the 13 disagreements I checked by hand the tool was right in 12 and wrong in 1 (fixed) | Two implementations by one author can share a blind spot; ground truth is `action.yml`, not GitHub's runtime warnings |
 | Node end-of-life rule | 12 random findings read by hand against the file contents | 12 | all 12 correct | Small sample |
-| Dated runner / Docker deadlines | Dates copied from official announcements and changelogs, each cited in [src/deadlines.ts](src/deadlines.ts) and [Dated deadlines](#dated-deadlines---no-deadlines-turns-them-off) | 9 runner labels, `ubuntu-latest` and Docker Content Trust | Unit tests on the date arithmetic and the text matching | **No oracle**: GitHub's scheduler cannot be queried, so correctness rests on the cited pages; some announcements are ambiguous (stated in the README) |
+| Dated runner / Docker deadlines | Dates copied from official announcements and changelogs, each cited in [src/deadlines.ts](src/deadlines.ts) and [Dated deadlines](#dated-deadlines---no-deadlines-turns-them-off) | 9 runner labels, `ubuntu-latest`, Docker Content Trust and CodeQL Action v3 (month precision) | Unit tests on the date arithmetic and the text matching | **No oracle**: GitHub's scheduler cannot be queried, so correctness rests on the cited pages; some announcements are ambiguous (stated in the README) |
 | `--fix-runners` | Unit tests (position check, matrix, CRLF, idempotence, `git apply --check`) | 7 tests | green | Not run against a real workflow on the new image; the new runner image is a different machine |
 | Docker Content Trust text matching | Hand review of every hit in 46 files from GitHub code search for the literal `DOCKER_CONTENT_TRUST` | 46 files, 29 flagged | 23 real uses, 6 documentation-like text; 17 correctly not flagged; 1 template-default enablement missed | Not a random sample; says nothing about files without the literal |
-| Rule logic | Unit tests on Linux, Windows, macOS (Node 20, 22, 24) | 102 tests | green | - |
+| Rule logic | Unit tests on Linux, Windows, macOS (Node 20, 22, 24) | 109 tests | green | - |
 
-**Releases:** 9 releases, v0.1.0 (2026-10-02) to v0.7.0 (2026-10-03). See [CHANGELOG.md](CHANGELOG.md) and the [Releases page](https://github.com/cosmichackerx/node24-ready/releases). The weekly runtime watch opens one issue when Node's schedule, the documented `runs.using` values, or GitHub's runner-images announcements change; it does not release anything. The project is days old, so there is no long-term cadence to show.
+**Releases:** 10 releases, v0.1.0 (2026-10-02) to v0.8.0 (2026-10-03). See [CHANGELOG.md](CHANGELOG.md) and the [Releases page](https://github.com/cosmichackerx/node24-ready/releases). The weekly runtime watch opens one issue when Node's schedule, the documented `runs.using` values, or GitHub's runner-images announcements change; it does not release anything. The project is days old, so there is no long-term cadence to show.
 
 ## Why not just grep `uses:` or run a version bumper?
 
@@ -49,7 +49,7 @@ The `node20`/`node24` fact lives in the **`action.yml` of the exact ref you pin*
 
 ```bash
 # needs Node 20+; GITHUB_TOKEN is optional but raises the API limit from 60 to 5000 requests/hour
-git clone --branch v0.7.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
+git clone --branch v0.8.0 https://github.com/cosmichackerx/node24-ready && cd node24-ready
 npm ci                                   # also compiles the CLI (prepare script)
 export GITHUB_TOKEN="$(gh auth token)"
 node dist/src/cli.js /path/to/your/repo  # exit code 1 when something declares a removed runtime
@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.7.0
+      - uses: cosmichackerx/node24-ready@v0.8.0
         with:
           fail-on: error          # error | warning | never
 ```
@@ -88,7 +88,7 @@ Errors show up as annotations on the workflow files and as a table in the job su
       security-events: write
     steps:
       - uses: actions/checkout@v5
-      - uses: cosmichackerx/node24-ready@v0.7.0
+      - uses: cosmichackerx/node24-ready@v0.8.0
         with:
           sarif-file: node24-ready.sarif
           fail-on: never
@@ -209,6 +209,7 @@ Machine readable (`--format json`, one finding):
 | `runner-image-retiring` | error / warning | `runs-on` names a hosted runner label that is retired (`macos-14*`, `ubuntu-22.04*`, and the already gone `macos-13`, `macos-12`, `windows-2019`, `ubuntu-20.04`) or retires on a published date. Error from 30 days before the next brownout or retirement, in a brownout, and after retirement; a warning before that, and for matrix entries until they fail. |
 | `runner-latest-migration` | info / warning | `ubuntu-latest` is being moved from Ubuntu 24.04 to 26.04 (window 2026-10-19 to 2026-11-19). Info, a warning from 14 days before the window, gone after it. |
 | `docker-content-trust` | warning / error | `DOCKER_CONTENT_TRUST` switched on, `docker trust sign|inspect|revoke|key|signer`, `--disable-content-trust=false` or `notary.docker.io` in a workflow or action file, a Dockerfile/Containerfile, a Docker Compose file, any other YAML (Kubernetes manifests: `env` entries as `name:`/`value:` pairs or flow maps), a shell script, a Makefile or an `.env` file. Docker Content Trust shuts down on 2026-12-08. Warning until 30 days before, then an error. |
+| `codeql-action-v3` | info / warning | `github/codeql-action/*@v3` (a `v3`, `v3.x` or `v3.x.y` tag, or a commit SHA whose comment names one). GitHub deprecates CodeQL Action v3 in **December 2026** (month only, no day); v4 runs on Node 24. Info until 31 days before 1 December, a warning after that, never an error: the announcement says deprecation means no new updates. |
 | `file-unparseable` | warning | A workflow the YAML parser rejects but GitHub may accept; its `uses:` lines are still found by a line scan. |
 | `ignore-expired` | warning | An entry of `.node24-ready.json` is past its `expires` date (it no longer suppresses anything). |
 | `local-action-runtime` | error | The repository's own `action.yml` declares `runs.using: node20` (or older): set `node24` and release. |
@@ -223,6 +224,7 @@ These rules read dates that GitHub and Docker published. Each entry in `src/dead
 | `ubuntu-22.04`, `ubuntu-22.04-arm` | deprecation 2026-09-17; brownouts on 2027-03-23, 03-30, 04-06, 04-13; **retired 2027-04-17** | [runner-images #14254](https://github.com/actions/runner-images/issues/14254) |
 | `ubuntu-latest` | moves to Ubuntu 26.04 gradually between **2026-10-19 and 2026-11-19** | [changelog 2026-09-17](https://github.blog/changelog/2026-09-17-ubuntu-26-generally-available-and-latest-migration/), [runner-images #14748](https://github.com/actions/runner-images/issues/14748) |
 | Docker Content Trust and the Notary v1 service | write brownouts 2026-07-14/15, read brownouts 2026-08-10/12 (all past); **shutdown 2026-12-08** | [Docker blog, 2026-06-16](https://www.docker.com/blog/docker-content-trust-retirement-and-migration-guidance/), [Docker docs](https://docs.docker.com/engine/security/trust/) |
+| CodeQL Action v3 (`github/codeql-action/*@v3`) | deprecated **in December 2026** (together with GHES 3.19); the day is **not announced**, so the scanner counts days to 1 December and says "59 to 89 days", never a single date. The GHES releases page lists 2026-12-09 as the "closing down date" of 3.19, which is a hint, not a CodeQL date. Brownouts are only mentioned as possible | [changelog 2025-10-28](https://github.blog/changelog/2025-10-28-upcoming-deprecation-of-codeql-action-v3/), [GHES releases](https://docs.github.com/en/enterprise-server@3.19/admin/all-releases) |
 | already retired: `macos-13` (Dec 2025), `windows-2019` (2025-06-30), `ubuntu-20.04` (2025-04-15), `macos-12` (2024-12-03) | | [#13046](https://github.com/actions/runner-images/issues/13046), [#12045](https://github.com/actions/runner-images/issues/12045), [#11101](https://github.com/actions/runner-images/issues/11101), [#10721](https://github.com/actions/runner-images/issues/10721) |
 
 Real output (`--today 2026-10-03`, a workflow with a `macos-14` job, an `os` matrix and Docker Content Trust):

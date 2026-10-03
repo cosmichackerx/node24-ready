@@ -1,4 +1,4 @@
-import type { Finding, Severity } from './types.js';
+import type { Finding, Severity, UseSite } from './types.js';
 import type { RunnerSite } from './workflow.js';
 
 /**
@@ -263,4 +263,78 @@ export function dctFindings(sites: DctSite[], opts: DeadlineOptions): Finding[] 
       '. Signing breaks first. Set DOCKER_CONTENT_TRUST=0 to keep pulls working, pin images by digest, and sign with Cosign or Notation',
     via: [],
   }));
+}
+
+/**
+ * A deadline GitHub announced with a month but no day. The scanner does not invent a day: before the month it counts whole days to the first of the month,
+ * inside it every day is "possibly today", after it the outcome is unknown and the finding says so.
+ */
+export interface MonthDeadline {
+  id: string;
+  month: string; // YYYY-MM
+  /** What is known about the day, if anything beyond the month (never used for the arithmetic). */
+  dayHint?: string;
+  sources: string[];
+  verified: string; // YYYY-MM-DD
+}
+
+export const CODEQL_V3: MonthDeadline = {
+  id: 'codeql-action-v3',
+  month: '2026-12',
+  dayHint: 'the announcement ties it to the GHES 3.19 deprecation; the GHES releases page lists 2026-12-09 as the "closing down date" of 3.19, but the CodeQL announcement itself gives only the month',
+  sources: ['https://github.blog/changelog/2025-10-28-upcoming-deprecation-of-codeql-action-v3/', 'https://docs.github.com/en/enterprise-server@3.19/admin/all-releases'],
+  verified: '2026-10-03',
+};
+
+export type MonthPhase = { phase: 'before' | 'during' | 'after'; daysToStart: number; daysToEnd: number };
+
+/** Where `today` is relative to a whole month (`daysToEnd` is the number of days until the last day of the month). */
+export function monthPhase(today: string, month: string): MonthPhase {
+  const [y, m] = month.split('-').map(Number) as [number, number];
+  const start = `${month}-01`;
+  const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+  const daysToStart = days(today, start);
+  const daysToEnd = days(today, last);
+  return { phase: daysToStart > 0 ? 'before' : daysToEnd >= 0 ? 'during' : 'after', daysToStart, daysToEnd };
+}
+
+const CODEQL_USES = /^github\/codeql-action(?:\/[A-Za-z0-9_./-]+)?@(\S+)$/i;
+const V3_REF = /^v?3(?:\.\d+){0,2}$/;
+
+/** Is this `uses:` a github/codeql-action reference on v3 (a v3 tag, or a commit SHA whose trailing comment names a v3 tag)? */
+export function isCodeqlV3(site: UseSite): boolean {
+  const m = CODEQL_USES.exec(site.value.trim());
+  if (!m) return false;
+  const ref = m[1] as string;
+  if (V3_REF.test(ref)) return true;
+  if (/^[0-9a-f]{40}$/i.test(ref) && site.comment) return /(^|[\s#(])v3(?:\.\d+){0,2}(?![\w.-])/.test(site.comment);
+  return false;
+}
+
+export function codeqlFindings(sites: UseSite[], opts: DeadlineOptions): Finding[] {
+  const ph = monthPhase(opts.today, CODEQL_V3.month);
+  const windowText = 'December 2026 (GitHub gave the month, not the day)';
+  // never an error: the announcement says deprecation means "no new updates"; brownouts are only mentioned as a possibility
+  const severity: Severity = ph.phase === 'before' && ph.daysToStart > 31 ? 'info' : 'warning';
+  const when =
+    ph.phase === 'before'
+      ? `CodeQL Action v3 is to be deprecated in ${windowText}; that is ${ph.daysToStart} to ${ph.daysToEnd} days from now`
+      : ph.phase === 'during'
+        ? `CodeQL Action v3 is to be deprecated in ${windowText}; it can happen on any of the next ${ph.daysToEnd + 1} days of the month`
+        : `CodeQL Action v3 was to be deprecated in ${windowText}; check the announcement, it is already past`;
+  return sites.filter(isCodeqlV3).map((s) => {
+    const base = s.value.split('@')[0] as string;
+    const ref = s.value.split('@')[1] as string;
+    const label = /^[0-9a-f]{40}$/i.test(ref) ? `${base}@${ref.slice(0, 7)} (${(s.comment ?? '').replace(/^#\s*/, '').trim()})` : s.value;
+    return {
+      rule: 'codeql-action-v3' as const,
+      severity,
+      file: s.file,
+      line: s.line,
+      column: s.column,
+      uses: s.value,
+      message: `${label}: ${when}. Deprecated means no new updates (brownouts are only mentioned as a possibility). Move to ${base}@v4, which runs on Node 24`,
+      via: [] as string[],
+    };
+  });
 }
