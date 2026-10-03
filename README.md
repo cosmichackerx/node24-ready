@@ -1,6 +1,7 @@
 # node24-ready
 
 [![CI](https://github.com/cosmichackerx/node24-ready/actions/workflows/ci.yml/badge.svg)](https://github.com/cosmichackerx/node24-ready/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/cosmichackerx/node24-ready?sort=semver)](https://github.com/cosmichackerx/node24-ready/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Find GitHub Actions workflows that still use actions declaring `node20` (or `node16` / `node12`), see through composite actions and reusable workflows, and get the smallest upgrade whose release really declares `node24`. Can rewrite the `uses:` lines for you (`--fix`), emits SARIF for code scanning, and ships as a GitHub Action and a CLI.**
@@ -325,3 +326,20 @@ It opens **one deduplicated issue** (label `runtime-watch`). The Node schedule i
 The `known-*` lists mean "known when the watcher started", not "reviewed". The first run found a real gap: Node 27 was in the schedule but not in `NODE_EOL` (added). What the watcher cannot do: tell you
 when GitHub *will* remove a runtime; `MIN_NODE_MAJOR` stays a manual decision after an announcement.
 
+## Related tools
+
+Small, independent tools by the same author, for build and CI hygiene and for migrations with a deadline. Each works on its own; none requires another.
+
+**Gradle and Android migrations**
+
+* [gradle-version-catalog-lint](https://github.com/cosmichackerx/gradle-version-catalog-lint): Lints `libs.versions.toml`: unused libraries, plugins and versions, dynamic or SNAPSHOT versions, hard-coded dependencies.
+* [gradle10-ready](https://github.com/cosmichackerx/gradle10-ready): Static scan of Gradle build scripts for what Gradle 10 removes (space assignment, multi-string dependencies, Kotlin DSL delegates). `--fix`, PR mode.
+* [agp9-ready](https://github.com/cosmichackerx/agp9-ready): Static scan of Gradle files for what Android Gradle Plugin 9 and 10 break (built-in Kotlin, legacy variant API, opt-outs), including `buildSrc`. `--fix`, PR mode.
+* [android-target-ready](https://github.com/cosmichackerx/android-target-ready): Static scanner for the targetSdk 36 / 37 migration in app code and manifests (edge-to-edge, predictive back, large screens).
+* [android-target-lint](https://github.com/cosmichackerx/android-target-lint): The same targetSdk migration checks as real Android Lint rules (a lint jar with type resolution).
+
+**CI and repository hygiene**
+
+* [dependabot-gaps](https://github.com/cosmichackerx/dependabot-gaps): Finds manifests your `dependabot.yml` does not cover, and dead or overlapping entries.
+* [sha256-ready](https://github.com/cosmichackerx/sha256-ready): Finds code that assumes 40-character Git hashes before Git 3.0 makes SHA-256 repositories the default.
+* [agent-context-diff](https://github.com/cosmichackerx/agent-context-diff): Diffs `AGENTS.md`, `CLAUDE.md`, Cursor rules and MCP configs between git refs (new servers, widened permissions, hidden Unicode).
