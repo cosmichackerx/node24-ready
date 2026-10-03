@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { applyIgnores, type Config } from './config.js';
 import { changedLines, filterChanged } from './diff.js';
-import { DCT_FILE_RE, DCT_MAX_BYTES, dctFindings, dctSites, runnerFindings, type DctSite } from './deadlines.js';
+import { DCT_FILE_RE, DCT_MAX_BYTES, codeqlFindings, dctFindings, dctSites, runnerFindings, type DctSite } from './deadlines.js';
 import { eolFindings } from './eol.js';
 import { GitHubClient, type ClientOptions } from './github.js';
 import { parseUses, refKey } from './refs.js';
@@ -183,7 +183,7 @@ export async function scan(opts: ScanOptions): Promise<ScanResult> {
   );
 
   if (opts.eol !== false) findings.push(...eolFindings(setupNode, { today, cwd: opts.cwd }));
-  if (opts.deadlines !== false) findings.push(...runnerFindings(runners, { today }), ...dctFindings(dct, { today }));
+  if (opts.deadlines !== false) findings.push(...runnerFindings(runners, { today }), ...dctFindings(dct, { today }), ...codeqlFindings(sites, { today }));
 
   let ignored: ScanResult['ignored'];
   let unusedIgnores: string[] | undefined;

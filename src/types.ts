@@ -9,6 +9,7 @@ export type Rule =
   | 'runner-image-retiring'
   | 'runner-latest-migration'
   | 'docker-content-trust'
+  | 'codeql-action-v3'
   | 'file-unparseable'
   | 'ignore-expired';
 
@@ -21,6 +22,7 @@ export const RULES: Record<Rule, string> = {
   'runner-image-retiring': 'runs-on names a hosted runner label that GitHub has retired or will retire on a published date (brownouts make jobs fail before that).',
   'runner-latest-migration': 'ubuntu-latest is being moved from Ubuntu 24.04 to 26.04 in a published window; tools and packages change.',
   'docker-content-trust': 'Docker Content Trust (DOCKER_CONTENT_TRUST, docker trust, notary.docker.io) is used; the Notary v1 service shuts down on 2026-12-08.',
+  'codeql-action-v3': 'github/codeql-action is on v3, which GitHub deprecates in December 2026 (month announced, no day); v4 runs on Node 24.',
   'file-unparseable': 'The YAML parser rejected this file (GitHub may still accept it); uses: lines were found by a line scan or not at all.',
   'ignore-expired': 'An entry of .node24-ready.json has expired and no longer suppresses anything.',
 };
