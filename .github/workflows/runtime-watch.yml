@@ -1,0 +1,69 @@
+name: Runtime watch
+
+# Diffs the facts node24-ready hard-codes (Node end-of-life dates and LTS names in src/eol.ts, the documented runs.using values)
+# against their sources with scripts/watch/watch-runtimes.mjs, and opens ONE issue when something moved.
+on:
+  schedule:
+    - cron: "43 5 * * 1"   # Mondays 05:43 UTC
+  workflow_dispatch:
+    inputs:
+      self_test:
+        description: "Ignore the known-* lists so the issue path is exercised (opens one real issue)"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - "scripts/watch/**"
+      - "src/eol.ts"
+      - ".github/workflows/runtime-watch.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Diff the sources against src/eol.ts and the known lists
+        id: diff
+        env:
+          SELF_TEST: ${{ inputs.self_test }}
+        run: |
+          set +e
+          extra=""
+          [ "$SELF_TEST" = "true" ] && extra="--known-runtimes /dev/null --known-changelog /dev/null"
+          node scripts/watch/watch-runtimes.mjs $extra --out "$RUNNER_TEMP/watch.json"
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          [ "$rc" = 0 ] || [ "$rc" = 3 ] || exit "$rc"
+      - name: Open an issue (scheduled and manual runs only)
+        if: steps.diff.outputs.rc == '3' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          node -e '
+            const fs = require("fs"), p = process.env.RUNNER_TEMP;
+            const r = JSON.parse(fs.readFileSync(p + "/watch.json", "utf8"));
+            fs.writeFileSync(p + "/issue.md", r.body);
+            fs.writeFileSync(p + "/issue.title", r.title);
+            fs.writeFileSync(p + "/issue.key", r.key);
+          '
+          TITLE="$(cat "$RUNNER_TEMP/issue.title")"
+          KEY="$(cat "$RUNNER_TEMP/issue.key")"
+          gh label create runtime-watch --color 0E8A16 --description "Opened by the runtime watch" 2>/dev/null || true
+          existing=$(gh issue list --label runtime-watch --state all --search "\"[$KEY]\" in:title" --json number --jq 'length')
+          if [ "$existing" != 0 ]; then
+            echo "An issue for [$KEY] already exists; not opening another."
+          else
+            gh issue create --title "$TITLE" --label runtime-watch --body-file "$RUNNER_TEMP/issue.md"
+          fi

@@ -1,0 +1,2 @@
+node20  # baseline 2026-10-03: documented runs.using values (node20 still accepted, run on Node 24)
+node24  # baseline

@@ -4,10 +4,10 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const dir = join('dist', 'test');
-const files = readdirSync(dir)
-  .filter((f) => f.endsWith('.test.js'))
-  .sort()
-  .map((f) => join(dir, f));
+const files = [
+  ...readdirSync(dir).filter((f) => f.endsWith('.test.js')).sort().map((f) => join(dir, f)),
+  ...readdirSync('test').filter((f) => f.endsWith('.test.mjs')).sort().map((f) => join('test', f)), // plain ESM tests (watcher script)
+];
 if (files.length === 0) {
   console.error('no test files found in', dir);
   process.exit(1);
