@@ -1,0 +1,5 @@
+{
+  "claims": [
+    {"id": "action pins in the README equal the newest release", "file": "README.md", "regex": "node24-ready@v([0-9.]+)", "expect": {"latest_tag": "https://github.com/cosmichackerx/node24-ready"}}
+  ]
+}
