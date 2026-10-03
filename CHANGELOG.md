@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+* CI: README numbers are checked by [claims-check](https://github.com/cosmichackerx/claims-check) (`.claims.json`). First run found the README stating "53 tests" in two places while the suite has 109; fixed.
+
 ## 0.8.0 - 2026-10-03
 
 * **`codeql-action-v3`** (dated deadline with *month* precision): `github/codeql-action/*@v3` (tags `v3`, `v3.x`, `v3.x.y`, or a commit SHA whose trailing comment names a v3 tag). GitHub announced that CodeQL Action v3 is deprecated in December 2026, together with GHES 3.19, without a day. The finding gives the whole-day range to the month ("59 to 89 days"), then "any of the next N days" inside December, and "already past" afterwards. Information more than 31 days before 1 December, then a warning, never an error (deprecation means no new updates). Source: GitHub changelog 2025-10-28. `--no-deadlines` skips it.
