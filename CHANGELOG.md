@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 - 2026-10-03
 
 * Weekly runtime watcher (`scripts/watch/watch-runtimes.mjs`, `.github/workflows/runtime-watch.yml`): Node release schedule vs `src/eol.ts`, documented `runs.using` values, Node-related changelog entries. One deduplicated issue.
 * `NODE_EOL` now has Node 27 (found by the watcher).
