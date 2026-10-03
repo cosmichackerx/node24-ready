@@ -52,6 +52,8 @@ export interface Finding {
   suggestion?: Suggestion;
   /** Why no suggestion was produced (only set when suggestions were requested). */
   noSuggestion?: string;
+  /** Runner-label findings only: the one-label rewrite `--fix-runners` would make (position of the label text itself). */
+  labelFix?: { line: number; column: number; from: string; to: string; caveat: string };
 }
 
 export interface UseSite {

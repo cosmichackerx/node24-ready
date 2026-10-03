@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { CONFIG_FILE, ConfigError, parseConfig, type Config } from './config.js';
 import { fileAtBase, GitError } from './diff.js';
-import { applyFixes, planFixes, writePlan } from './fix.js';
+import { applyFixes, planFixes, planRunnerEdits, writePlan } from './fix.js';
 import { planPins } from './pin.js';
 import { GitHubClient } from './github.js';
 import { RateLimitError } from './github.js';
@@ -30,6 +30,7 @@ Options:
       --no-deadlines     skip the dated deadline rules (runner labels, ubuntu-latest, Docker Content Trust)
       --today <date>     YYYY-MM-DD used for expiry and end-of-life checks (for tests)
       --fix              rewrite uses: lines to the suggested node24-capable release (review the changelog first)
+      --fix-runners      rewrite retiring runs-on labels one generation up (macos-14* -> macos-15*, ubuntu-22.04* -> ubuntu-24.04*); with --dry-run prints a diff
       --pin-only         only replace tag refs by the commit SHA they point to now (same major, no upgrade); with --dry-run prints a diff
       --dry-run          with --fix or --pin-only: write nothing, print a unified diff (git apply / patch -p1 accept it)
       --no-suggest       do not look for upgrade targets (fewer API requests)
@@ -78,6 +79,7 @@ export async function run(
         fix: { type: 'boolean', default: false },
         'dry-run': { type: 'boolean', default: false },
         'pin-only': { type: 'boolean', default: false },
+        'fix-runners': { type: 'boolean', default: false },
         'no-fallback': { type: 'boolean', default: false },
         'changed-since': { type: 'string' },
         config: { type: 'string' },
@@ -119,8 +121,16 @@ export async function run(
     io.stderr('node24-ready: --today must look like 2026-10-02\n');
     return 2;
   }
-  if (values['dry-run'] && !values.fix && !values['pin-only']) {
-    io.stderr('node24-ready: --dry-run only makes sense together with --fix or --pin-only\n');
+  if (values['dry-run'] && !values.fix && !values['pin-only'] && !values['fix-runners']) {
+    io.stderr('node24-ready: --dry-run only makes sense together with --fix, --fix-runners or --pin-only\n');
+    return 2;
+  }
+  if (values['fix-runners'] && (values['pin-only'] || values['changed-since'] || values['no-deadlines'])) {
+    io.stderr('node24-ready: --fix-runners cannot be combined with --pin-only, --changed-since or --no-deadlines\n');
+    return 2;
+  }
+  if (values['fix-runners'] && values.fix && values['dry-run']) {
+    io.stderr('node24-ready: with --dry-run use --fix and --fix-runners in separate runs (two diffs of one file would not apply together)\n');
     return 2;
   }
   if (values['pin-only'] && (values.fix || values['changed-since'])) {
@@ -166,6 +176,13 @@ export async function run(
       clientOptions: { ...(values['no-fallback'] ? { fallback: false } : {}), ...(values['api-url'] ? { apiUrl: values['api-url'] } : io.env.GITHUB_API_URL ? { apiUrl: io.env.GITHUB_API_URL } : {}), ...(token ? { token } : {}), ...(values['cache-dir'] || io.env.NODE24_READY_CACHE ? { cacheDir: resolve(cwd, (values['cache-dir'] || io.env.NODE24_READY_CACHE) as string) } : {}) },
     });
     if (result.summary.fallbackLookups) io.stderr(`node24-ready: GitHub API rate limit reached; ${result.summary.fallbackLookups} lookup(s) went through raw.githubusercontent.com / git ls-remote (public repositories only; unresolved ones stay unresolved)\n`);
+    if (values['fix-runners'] && !values.fix && values['dry-run']) {
+      const plan = planRunnerEdits(result.findings, cwd);
+      for (const f of plan.files) io.stdout(f.diff);
+      for (const f of result.findings) if (f.labelFix) io.stderr(`node24-ready: ${f.file}:${f.labelFix.line}: ${f.labelFix.from} -> ${f.labelFix.to} (${f.labelFix.caveat})\n`);
+      io.stderr(plan.changes.length ? `node24-ready: dry run: ${plan.changes.length} label(s) in ${plan.files.length} file(s) would change; nothing was written\n` : 'node24-ready: dry run: no runner label it could rewrite safely\n');
+      return 0;
+    }
     if (values.fix && values['dry-run']) {
       const plan = planFixes(result.findings, cwd);
       for (const f of plan.files) io.stdout(f.diff);
@@ -179,6 +196,15 @@ export async function run(
       // report only what is left: findings that were rewritten are resolved
       const fixed = new Set(changes.map((c) => `${c.file}:${c.line}`));
       result.findings = result.findings.filter((f) => !fixed.has(`${f.file}:${f.line}`));
+    }
+    if (values['fix-runners']) {
+      const plan = planRunnerEdits(result.findings, cwd);
+      const changes = writePlan(plan);
+      for (const c of changes) io.stderr(`node24-ready: fixed ${c.file}:${c.line}: runs-on ${c.from} -> ${c.to}\n`);
+      for (const f of result.findings) if (f.labelFix && changes.some((c) => c.file === f.file && c.line === f.labelFix!.line && c.column === f.labelFix!.column)) io.stderr(`node24-ready: ${f.labelFix.from} -> ${f.labelFix.to}: ${f.labelFix.caveat}\n`);
+      if (changes.length === 0) io.stderr('node24-ready: --fix-runners found no label it could rewrite safely\n');
+      const done = new Set(changes.map((c) => `${c.file}:${c.line}:${c.column}`));
+      result.findings = result.findings.filter((f) => !(f.labelFix && done.has(`${f.file}:${f.labelFix.line}:${f.labelFix.column}`)));
     }
     let text: string;
     switch (format) {
@@ -200,7 +226,7 @@ export async function run(
     if (values.output) writeFileSync(values.output, `${text}\n`);
     else if (text) io.stdout(`${text}\n`);
     const threshold = failOnRaw as Severity | 'never';
-    return threshold !== 'never' && !values.fix && meetsThreshold(result.findings, threshold) ? 1 : 0;
+    return threshold !== 'never' && !values.fix && !values['fix-runners'] && meetsThreshold(result.findings, threshold) ? 1 : 0;
   } catch (err) {
     if (err instanceof RateLimitError) {
       io.stderr(`node24-ready: ${err.message}\n`);

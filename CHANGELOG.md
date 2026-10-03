@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0 - 2026-10-03
+
+* **`--fix-runners` (issue #26):** rewrites retiring `runs-on` labels one generation up (`macos-14*` -> `macos-15*`, `ubuntu-22.04*` -> `ubuntu-24.04*`), in scalars, lists and matrix entries, with `--dry-run` diffs, CRLF safety, idempotence and a caveat line per label. Opt-in; `--fix` is unchanged.
+* Runner findings now carry `labelFix` (position of the label text, from, to, caveat) in `--format json`.
+
 ## 0.5.0 - 2026-10-03
 
 Dated deadlines (new rules, on by default; `--no-deadlines` or `deadlines: false` turns them off):

@@ -119,6 +119,15 @@ function ramp(left: number, urgentDays: number): Severity {
   return left <= urgentDays ? 'error' : 'warning';
 }
 
+/** Label rewrites `--fix-runners` makes. One step to the next generation of the same family and architecture; nothing else. */
+export const RUNNER_FIX: Record<string, { to: string; caveat: string }> = {
+  'macos-14': { to: 'macos-15', caveat: 'macOS 15 image: different default Xcode and tool versions (same arm64 architecture)' },
+  'macos-14-large': { to: 'macos-15-large', caveat: 'macOS 15 image: different default Xcode and tool versions (same Intel x64 architecture)' },
+  'macos-14-xlarge': { to: 'macos-15-xlarge', caveat: 'macOS 15 image: different default Xcode and tool versions (same arm64 architecture)' },
+  'ubuntu-22.04': { to: 'ubuntu-24.04', caveat: 'Ubuntu 24.04 image: newer default toolchains and a different package set; check apt packages and pinned tool versions' },
+  'ubuntu-22.04-arm': { to: 'ubuntu-24.04-arm', caveat: 'Ubuntu 24.04 image: newer default toolchains and a different package set; check apt packages and pinned tool versions' },
+};
+
 const index = new Map<string, { d: RunnerDeadline; hint: string }>();
 for (const d of RUNNER_DEADLINES) for (const [label, hint] of Object.entries(d.labels)) index.set(label, { d, hint });
 
@@ -136,6 +145,7 @@ export function runnerFindings(sites: RunnerSite[], opts: DeadlineOptions): Find
     const hit = index.get(label);
     if (hit) {
       const { d, hint } = hit;
+      const fix = RUNNER_FIX[label];
       const toRetire = days(opts.today, d.retired);
       const upcoming = d.brownouts.filter((b) => b.to.slice(0, 10) >= opts.today);
       const active = d.brownouts.find((b) => b.from.slice(0, 10) <= opts.today && b.to.slice(0, 10) >= opts.today);
@@ -162,6 +172,7 @@ export function runnerFindings(sites: RunnerSite[], opts: DeadlineOptions): Find
         uses: s.label,
         message: `${msg}. Move to ${hint}.`,
         via: [],
+        ...(fix && s.at && !sites.some((o) => o.file === s.file && o.label.trim().toLowerCase() === fix.to) ? { labelFix: { line: s.at.line, column: s.at.column, from: s.label, to: fix.to, caveat: fix.caveat } } : {}),
       });
       continue;
     }
