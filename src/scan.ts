@@ -2,13 +2,14 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { applyIgnores, type Config } from './config.js';
 import { changedLines, filterChanged } from './diff.js';
+import { dctFindings, dctSites, runnerFindings, type DctSite } from './deadlines.js';
 import { eolFindings } from './eol.js';
 import { GitHubClient, type ClientOptions } from './github.js';
 import { parseUses, refKey } from './refs.js';
 import { Evaluator, isDeprecatedUsing } from './runtime.js';
 import { suggest } from './suggest.js';
 import { type Finding, type ScanResult, type UseSite } from './types.js';
-import { parseFile, type SetupNodeSite } from './workflow.js';
+import { parseFile, type RunnerSite, type SetupNodeSite } from './workflow.js';
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'vendor', 'target', '.venv']);
 const WORKFLOW_RE = /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/;
@@ -50,6 +51,8 @@ export interface ScanOptions {
   today?: string;
   /** Turn the setup-node end-of-life rule off. */
   eol?: boolean;
+  /** Turn the dated deadline rules (runner labels, ubuntu-latest, Docker Content Trust) off. */
+  deadlines?: boolean;
 }
 
 export const isoToday = (d = new Date()): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -61,11 +64,15 @@ export async function scan(opts: ScanOptions): Promise<ScanResult> {
   const findings: Finding[] = [];
   const sites: UseSite[] = [];
   const setupNode: SetupNodeSite[] = [];
+  const runners: RunnerSite[] = [];
+  const dct: DctSite[] = [];
   const today = opts.today ?? isoToday();
 
   for (const abs of files) {
     const rel = relative(opts.cwd, abs).split(sep).join('/');
-    const parsed = parseFile(rel, readFileSync(abs, 'utf8'));
+    const text = readFileSync(abs, 'utf8');
+    const parsed = parseFile(rel, text);
+    dct.push(...dctSites(rel, text));
     if (parsed.error) {
       findings.push({
         rule: 'file-unparseable',
@@ -82,6 +89,7 @@ export async function scan(opts: ScanOptions): Promise<ScanResult> {
       if (!parsed.fallback) continue;
     }
     setupNode.push(...parsed.setupNode);
+    runners.push(...parsed.runners);
     if (parsed.runsUsing && isDeprecatedUsing(parsed.runsUsing.value)) {
       findings.push({
         rule: 'local-action-runtime',
@@ -141,6 +149,7 @@ export async function scan(opts: ScanOptions): Promise<ScanResult> {
   );
 
   if (opts.eol !== false) findings.push(...eolFindings(setupNode, { today, cwd: opts.cwd }));
+  if (opts.deadlines !== false) findings.push(...runnerFindings(runners, { today }), ...dctFindings(dct, { today }));
 
   let ignored: ScanResult['ignored'];
   let unusedIgnores: string[] | undefined;

@@ -11,12 +11,22 @@ export interface ParsedFile {
   plugin?: boolean;
   /** `actions/setup-node` steps with their node-version / node-version-file inputs. */
   setupNode: SetupNodeSite[];
+  /** `runs-on` labels of every job (matrix lists expanded). */
+  runners: RunnerSite[];
   /** Set when the file could not be parsed as YAML. */
   error?: string;
   /** The YAML parser rejected the file but a line scan still found `uses:` lines (see `error`). */
   fallback?: boolean;
   /** Line of the YAML error (1-based), when known. */
   errorLine?: number;
+}
+
+export interface RunnerSite {
+  file: string;
+  line: number;
+  column: number;
+  label: string;
+  fromMatrix: boolean;
 }
 
 export interface SetupNodeSite {
@@ -42,7 +52,7 @@ const STEP_SKIP_KEYS = new Set(['with', 'env', 'run', 'if', 'name', 'id', 'shell
 
 /** Fallback for files the YAML parser rejects (GitHub's own parser is more lenient): scan for `uses:` lines. */
 function lineScan(file: string, text: string, error: string, errorLine?: number): ParsedFile {
-  const out: ParsedFile = { uses: [], composite: false, setupNode: [], error, fallback: true };
+  const out: ParsedFile = { uses: [], composite: false, setupNode: [], runners: [], error, fallback: true };
   if (errorLine !== undefined) out.errorLine = errorLine;
   const re = /^(\s*(?:-\s+)?uses:\s*)(["']?)([^\s"'#]+)\2\s*(#.*)?$/;
   text.split(/\r?\n/).forEach((line, i) => {
@@ -70,7 +80,7 @@ export function parseFile(file: string, text: string): ParsedFile {
     return fb.uses.length > 0 ? fb : { ...fb, fallback: false };
   }
   const root = doc.contents;
-  const out: ParsedFile = { uses: [], composite: false, setupNode: [] };
+  const out: ParsedFile = { uses: [], composite: false, setupNode: [], runners: [] };
   if (!isMap(root)) return out;
 
   const addUse = (node: Node | null): void => {
@@ -128,6 +138,33 @@ export function parseFile(file: string, text: string): ParsedFile {
     out.setupNode.push(site);
   };
 
+  /** `runs-on: label`, `runs-on: [a, b]`, `runs-on: { labels: ... }` and `${{ matrix.os }}` of a job */
+  const noteRunsOn = (node: Node | null, matrix: Node | null): void => {
+    const add = (n: unknown, fromMatrix: boolean): void => {
+      const label = scalarText(n);
+      if (label === null || !isScalar(n) || !n.range || label.includes('${{')) return;
+      const pos = lc.linePos(n.range[0]);
+      out.runners.push({ file, line: pos.line, column: pos.col, label, fromMatrix });
+    };
+    if (isSeq(node)) {
+      for (const it of node.items) noteRunsOn(it as Node, matrix);
+      return;
+    }
+    if (isMap(node)) {
+      const labels = getMap(node, 'labels');
+      if (labels) noteRunsOn(labels, matrix);
+      return;
+    }
+    if (!isScalar(node) || typeof node.value !== 'string' || !node.range) return;
+    const expr = /^\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}$/.exec(node.value.trim());
+    if (expr) {
+      const pos = lc.linePos(node.range[0]);
+      for (const v of matrixValues(matrix, expr[1] as string) ?? []) out.runners.push({ file, line: pos.line, column: pos.col, label: v, fromMatrix: true });
+      return;
+    }
+    add(node, false);
+  };
+
   // `steps` can nest (for example `- parallel:` groups), so walk sequences and maps below a step, but never into inputs
   const steps = (node: Node | null, matrix: Node | null): void => {
     if (!isSeq(node)) return;
@@ -154,6 +191,7 @@ export function parseFile(file: string, text: string): ParsedFile {
       addUse(getMap(pair.value, 'uses'));
       const strategy = getMap(pair.value, 'strategy');
       const matrix = isMap(strategy) ? getMap(strategy, 'matrix') : null;
+      noteRunsOn(getMap(pair.value, 'runs-on'), matrix);
       steps(getMap(pair.value, 'steps'), matrix);
     }
   }

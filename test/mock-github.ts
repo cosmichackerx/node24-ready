@@ -101,7 +101,7 @@ export function world(): Record<string, MockRepo> {
       tags: [{ name: 'v1', sha: sha(21) }],
     },
     'acme/flows': {
-      files: { '.github/workflows/build.yml@main': 'on: workflow_call\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: acme/checkout@v4\n' },
+      files: { '.github/workflows/build.yml@main': 'on: workflow_call\njobs:\n  b:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: acme/checkout@v4\n' },
       tags: [],
     },
     'acme/private': { files: {}, tags: [] },

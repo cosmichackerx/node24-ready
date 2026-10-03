@@ -104,6 +104,9 @@ const RULE_SEVERITY: Record<keyof typeof RULES, Severity> = {
   'action-runtime-unresolved': 'warning',
   'local-action-runtime': 'error',
   'setup-node-eol': 'warning',
+  'runner-image-retiring': 'error',
+  'runner-latest-migration': 'warning',
+  'docker-content-trust': 'warning',
   'file-unparseable': 'warning',
   'ignore-expired': 'warning',
 };

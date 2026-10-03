@@ -57,7 +57,7 @@ after(async () => {
 function project(): string {
   const dir = mkdtempSync(join(tmpdir(), 'n24fb-'));
   mkdirSync(join(dir, '.github/workflows'), { recursive: true });
-  writeFileSync(join(dir, '.github/workflows/ci.yml'), 'on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: acme/checkout@v4\n      - uses: acme/setup@v1\n');
+  writeFileSync(join(dir, '.github/workflows/ci.yml'), 'on: push\njobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: acme/checkout@v4\n      - uses: acme/setup@v1\n');
   return dir;
 }
 
